@@ -1,6 +1,6 @@
 # Phân tích dự án Knowledge Graph Builder và hướng áp dụng Neo4j cho LMS
 
-> Lưu ý tên: sản phẩm trong repository dùng **Neo4j** (không phải “Neon4j”). Tài liệu này phân biệt rõ chức năng đã có trong mã nguồn với kiến trúc LMS được đề xuất; phần LMS hiện chưa được triển khai trong repository.
+> Lưu ý: Tài liệu này phân biệt rõ chức năng đã có trong mã nguồn với kiến trúc LMS được đề xuất; phần LMS hiện chưa được triển khai trong repository.
 
 ## 1. Tóm tắt điều hành
 
