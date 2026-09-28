@@ -2,7 +2,7 @@
 **Nguồn dữ liệu tham khảo:** Tệp "Họp Đồ Án Buổi 2.txt"
 
 ## 1. Thành phần tham dự
-* **Thầy giáo hướng dẫn:** 
+* **Thầy giáo hướng dẫn:** TS. Nguyễn Quang Hùng (002609).
 * **Nhóm sinh viên thực hiện đồ án:** Nhóm 033.
 
 ## 2. Nội dung thảo luận chính
