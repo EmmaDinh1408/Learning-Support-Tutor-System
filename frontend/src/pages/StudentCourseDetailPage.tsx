@@ -44,24 +44,24 @@ const SECTIONS: CourseSection[] = [
   },
   {
     id: 'ch0',
-    titleVi: 'Chương 0: Ôn tập giải tích tổ hợp',
-    titleEn: 'Chapter 0: Review of combinatorial analysis',
+    titleVi: 'Chương 1',
+    titleEn: 'Chapter 1',
     items: [{ id: 'c0_1', nameVi: 'Slide bài giảng C0', nameEn: 'Lecture slides C0' }],
   },
   {
     id: 'ch1',
-    titleVi: 'Chương 1: Đại cương về xác suất',
-    titleEn: 'Chapter 1: Introduction to probability',
+    titleVi: 'Chương 2',
+    titleEn: 'Chapter 2',
     items: [{ id: 'c1_1', nameVi: 'Slide bài giảng C1', nameEn: 'Lecture slides C1' }],
   },
 ];
 
 const GRADES = [
-  { category: 'manual', titleVi: 'Giữa kỳ', titleEn: 'Midterm', subVi: 'MỤC THỦ CÔNG', subEn: 'MANUAL ITEM', weight: '-', score: '6,00', range: '0-10', percentage: '60,00 %', feedback: '-', contribution: '-' },
+  { category: 'manual', titleVi: 'Giữa kỳ', titleEn: 'Midterm', subVi: 'MỤC THỦ CÔNG', subEn: 'MANUAL ITEM', weight: '-', score: '9,00', range: '0-10', percentage: '60,00 %', feedback: '-', contribution: '-' },
   { category: 'manual', titleVi: 'BTL', titleEn: 'Course project', subVi: 'MỤC THỦ CÔNG', subEn: 'MANUAL ITEM', weight: '-', score: '-', range: '0-10', percentage: '-', feedback: '-', contribution: '-' },
   { category: 'manual', titleVi: 'Cuối kỳ', titleEn: 'Final exam', subVi: 'MỤC THỦ CÔNG', subEn: 'MANUAL ITEM', weight: '-', score: '-', range: '0-13', percentage: '-', feedback: '-', contribution: '-' },
-  { category: 'attendance', titleVi: 'Điểm danh DT01', titleEn: 'Attendance DT01', subVi: 'Điểm danh', subEn: 'ATTENDANCE', weight: '-', score: '-', range: '0-100', percentage: '-', feedback: '-', contribution: '-' },
-  { category: 'attendance', titleVi: 'Điểm danh DT02', titleEn: 'Attendance DT02', subVi: 'Điểm danh', subEn: 'ATTENDANCE', weight: '-', score: '100,00', range: '0-100', percentage: '100,00 %', feedback: '-', contribution: '-' },
+  { category: 'attendance', titleVi: 'Điểm danh A01', titleEn: 'Attendance A01', subVi: 'Điểm danh', subEn: 'ATTENDANCE', weight: '-', score: '-', range: '0-100', percentage: '-', feedback: '-', contribution: '-' },
+  { category: 'attendance', titleVi: 'Điểm danh A02', titleEn: 'Attendance A02', subVi: 'Điểm danh', subEn: 'ATTENDANCE', weight: '-', score: '100,00', range: '0-100', percentage: '100,00 %', feedback: '-', contribution: '-' },
 ];
 
 export default function StudentCourseDetailPage() {
@@ -72,8 +72,8 @@ export default function StudentCourseDetailPage() {
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ materials: true, ch0: true });
   const isVi = language === 'vi';
   const courseName = useMemo(
-    () => courseId === 'MT2013'
-      ? 'Xác suất và Thống kê (MT2013)_Phan Thị Hường (DT_HK253) [DT01,DT02]'
+    () => courseId === 'CO2003'
+      ? 'Cấu trúc dữ liệu và giải thuật (CO2003)'
       : `${courseId} - ${isVi ? 'Tên khóa học' : 'Course name'}`,
     [courseId, isVi],
   );
