@@ -186,6 +186,38 @@ h1, h2, h3, h4, p { margin: 0; }
 .tabs-pill { display: inline-flex; background: #eef3f6; border-radius: 8px; padding: 0; overflow: hidden; align-self: flex-start; }
 .tabs-pill button { border: 0; background: transparent; padding: 7px 16px; font-size: 12px; color: var(--primary); font-weight: 500; }
 .tabs-pill button.on { background: var(--primary); color: #fff; font-weight: 600; }
+.course-detail-content { padding-block: 24px 40px; }
+.course-detail-content > h1 { text-align: center; color: #244a61; font-size: 20px; margin-bottom: 18px; }
+.course-detail-tabs { justify-content: center; margin: 0 auto 24px; }
+.course-detail-sections { display: grid; gap: 10px; max-width: 980px; margin-inline: auto; }
+.course-collapse-all { justify-self: end; border: 0; background: transparent; color: var(--primary); font-size: 12px; }
+.course-detail-section { background: #fff; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.course-detail-section-head { width: 100%; min-height: 48px; border: 0; background: #fff; padding: 12px 15px; display: flex; align-items: center; justify-content: space-between; color: var(--text); }
+.course-section-title { display: inline-flex; align-items: center; gap: 9px; font-weight: 700; }
+.course-section-title svg { color: var(--primary); }
+.course-section-badge { background: #edf1f4; border-radius: 999px; padding: 3px 8px; font-size: 11px; color: var(--muted); }
+.course-resource-list { border-top: 1px solid var(--line); padding: 10px 16px 14px 42px; }
+.course-resource { min-height: 38px; display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 8px; color: var(--primary); text-decoration: none; font-size: 13px; }
+.course-resource svg { color: #d94848; }
+.course-resource small { color: var(--muted); }
+.course-empty-section { border-top: 1px solid var(--line); margin: 0; padding: 12px 16px; color: var(--muted); font-size: 12px; font-style: italic; }
+.course-grades-card { max-width: 1100px; margin-inline: auto; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
+.course-grades-heading { min-height: 48px; display: flex; align-items: center; gap: 8px; padding: 12px 16px; background: #f5f8fa; border-bottom: 1px solid var(--line); font-size: 13px; }
+.course-grades-heading svg { color: var(--primary); }
+.course-grades-table-wrap { overflow-x: auto; }
+.course-grades-table { width: 100%; border-collapse: collapse; min-width: 850px; font-size: 12px; }
+.course-grades-table th, .course-grades-table td { border-bottom: 1px solid var(--line); padding: 12px; text-align: center; }
+.course-grades-table th:first-child, .course-grades-table td:first-child { text-align: left; min-width: 220px; }
+.course-grades-table th:last-child, .course-grades-table td:last-child { text-align: right; }
+.course-grades-table th { background: #f8fafb; }
+.course-grades-table td:first-child { display: flex; gap: 8px; }
+.course-grades-table td:first-child span:last-child { display: grid; }
+.course-grades-table td small { color: var(--muted); text-transform: uppercase; font-size: 10px; }
+.grade-item-icon { color: var(--muted); }
+.course-grade-total { background: #f8fafb; font-weight: 700; }
+.course-grade-total td:first-child { display: table-cell; }
+.course-competencies-empty { max-width: 980px; margin-inline: auto; min-height: 120px; display: grid; place-items: center; align-content: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--muted); }
+.course-competencies-empty svg { color: #35a667; }
 .course-subheader.teacher { padding-top: 6px; }
 .round-btn { position: absolute; top: 8px; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(4,126,166,.35); z-index: 3; }
 .round-btn.left { left: 10px; } .round-btn.right { right: 10px; }

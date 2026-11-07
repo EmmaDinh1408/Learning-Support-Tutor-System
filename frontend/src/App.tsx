@@ -8,6 +8,7 @@ import TeacherCourseGraphPage from './pages/TeacherCourseGraphPage';
 import TeacherNodeEditorPage from './pages/TeacherNodeEditorPage';
 import HomePage from './pages/HomePage';
 import DashboardPage from './pages/Dashboard';
+import StudentCourseDetailPage from './pages/StudentCourseDetailPage';
 import type { Role } from './types';
 import type { ReactNode } from 'react';
 
@@ -32,6 +33,7 @@ export default function App() {
       <Route path="/dashboard" element={<SignedIn><DashboardPage /></SignedIn>} />
       <Route path="/courses" element={<Guard role="student"><StudentCoursesPage /></Guard>} />
       <Route path="/courses/:courseId/graph" element={<Guard role="student"><StudentCourseGraphPage /></Guard>} />
+      <Route path="/courses/:courseId/:tab" element={<Guard role="student"><StudentCourseDetailPage /></Guard>} />
       <Route path="/teacher/courses" element={<Guard role="teacher"><TeacherCoursesPage /></Guard>} />
       <Route path="/teacher/courses/:courseId/graph" element={<Guard role="teacher"><TeacherCourseGraphPage /></Guard>} />
       <Route path="/teacher/courses/:courseId/nodes/:nodeId" element={<Guard role="teacher"><TeacherNodeEditorPage /></Guard>} />

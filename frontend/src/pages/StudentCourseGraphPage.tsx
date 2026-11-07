@@ -1,6 +1,6 @@
 import { ArrowLeft, PanelRight, List } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { AppHeader } from '../features/layout/AppHeader';
 import { useAsync } from '../features/common/useAsync';
@@ -9,14 +9,18 @@ import { LegendInline } from '../features/graph/Legend';
 import { LoPanel } from '../features/graph/LoPanel';
 import { NodeDetailPanel } from '../features/graph/NodeDetailPanel';
 import { StudentNodeView } from '../features/graph/StudentNodeView';
+import { useLanguage } from '../features/i18n/LanguageContext';
 
-const TABS = ['Bản đồ', 'Nội dung', 'Điểm số', 'Năng lực'];
 const NODE_W = 120;
 const NODE_H = 96;
 
 export default function StudentCourseGraphPage() {
-  
+  const navigate = useNavigate();
+  const { language } = useLanguage();
   const { courseId = 'CO2003' } = useParams();
+  const tabs = language === 'vi'
+    ? ['Bản đồ', 'Nội dung', 'Điểm số', 'Năng lực']
+    : ['Graph', 'Content', 'Grades', 'Competencies'];
   const [cluster, setCluster] = useState<string | null>(null);
   const [lo, setLo] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -64,7 +68,11 @@ export default function StudentCourseGraphPage() {
         <div className="subheader-center">
           <h1>Cấu trúc dữ liệu và giải thuật (CO2003)</h1>
           <div className="tabs-pill">
-            {TABS.map((t, i) => <button key={t} className={i === 0 ? 'on' : ''}>{t}</button>)}
+            {tabs.map((t, i) => <button key={t} className={i === 0 ? 'on' : ''} onClick={() => {
+              if (i === 1) navigate(`/courses/${courseId}/content`);
+              if (i === 2) navigate(`/courses/${courseId}/grades`);
+              if (i === 3) navigate(`/courses/${courseId}/competencies`);
+            }}>{t}</button>)}
           </div>
         </div>
         <button className={`round-btn right${rightOpen ? '' : ' off'}`} aria-label="Bảng bên phải" onClick={() => setRightOpen((o) => !o)}><PanelRight size={16} /></button>
