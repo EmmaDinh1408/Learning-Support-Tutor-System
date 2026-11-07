@@ -26,7 +26,7 @@ export default function LoginPage() {
     setBusy(true);
     const user = await api.login(identity || PLACEHOLDER[role], password, role);
     setUser(user);
-    nav(role === 'teacher' ? '/teacher/courses' : '/courses');
+    nav('/home');
   };
 
   const label = role === 'student' ? 'Học viên' : 'Giảng viên';

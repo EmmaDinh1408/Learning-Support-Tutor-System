@@ -6,6 +6,8 @@ import StudentCourseGraphPage from './pages/StudentCourseGraphPage';
 import TeacherCoursesPage from './pages/TeacherCoursesPage';
 import TeacherCourseGraphPage from './pages/TeacherCourseGraphPage';
 import TeacherNodeEditorPage from './pages/TeacherNodeEditorPage';
+import HomePage from './pages/HomePage';
+import DashboardPage from './pages/Dashboard';
 import type { Role } from './types';
 import type { ReactNode } from 'react';
 
@@ -16,10 +18,18 @@ function Guard({ role, children }: { role: Role; children: ReactNode }) {
   return <>{children}</>;
 }
 
+function SignedIn({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/home" element={<SignedIn><HomePage /></SignedIn>} />
+      <Route path="/dashboard" element={<SignedIn><DashboardPage /></SignedIn>} />
       <Route path="/courses" element={<Guard role="student"><StudentCoursesPage /></Guard>} />
       <Route path="/courses/:courseId/graph" element={<Guard role="student"><StudentCourseGraphPage /></Guard>} />
       <Route path="/teacher/courses" element={<Guard role="teacher"><TeacherCoursesPage /></Guard>} />

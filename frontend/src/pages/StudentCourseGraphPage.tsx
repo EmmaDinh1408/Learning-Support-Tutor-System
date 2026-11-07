@@ -15,6 +15,7 @@ const NODE_W = 120;
 const NODE_H = 96;
 
 export default function StudentCourseGraphPage() {
+  
   const { courseId = 'CO2003' } = useParams();
   const [cluster, setCluster] = useState<string | null>(null);
   const [lo, setLo] = useState<string | null>(null);
