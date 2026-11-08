@@ -23,6 +23,8 @@ interface Props {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
   renderNode: (id: string) => ReactNode;
+  selectedEdge?: string;
+  onEdgeClick?: (from: string, to: string) => void;
   /** đổi giá trị này để fit lại khung nhìn */
   fitKey?: string;
   padding?: number;
@@ -32,7 +34,7 @@ interface Props {
 
 interface View { tx: number; ty: number; s: number }
 
-export function GraphCanvas({ nodes, edges, renderNode, fitKey, padding = 48, maxScale = 1.25, onBackgroundClick }: Props) {
+export function GraphCanvas({ nodes, edges, renderNode, selectedEdge, onEdgeClick, fitKey, padding = 48, maxScale = 1.25, onBackgroundClick }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>({ tx: 0, ty: 0, s: 1 });
   const drag = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(null);
@@ -128,7 +130,11 @@ export function GraphCanvas({ nodes, edges, renderNode, fitKey, padding = 48, ma
             <path
               key={key}
               d={d}
-              className={`edge edge-${e.kind}${e.dim ? ' dim' : ''}${e.active ? ' active' : ''}`}
+              className={`edge edge-${e.kind}${e.dim ? ' dim' : ''}${e.active ? ' active' : ''}${selectedEdge === `${e.from}-${e.to}` ? ' selected' : ''}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onEdgeClick?.(e.from, e.to);
+              }}
             />
           ))}
         </svg>

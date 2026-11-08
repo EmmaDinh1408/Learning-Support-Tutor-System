@@ -1,4 +1,4 @@
-import { ArrowRight, FileText, List, Link2, PanelRight, Plus, Merge, Users, Network, ArrowLeft } from 'lucide-react';
+import { ArrowRight, FileText, List, Link2, PanelRight, Plus, Merge, Trash2, Users, Network, ArrowLeft } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
@@ -15,9 +15,10 @@ import { LoView } from '../features/teacher/LoView';
 import { ClusterCard, ClusterNodeCard } from '../features/teacher/TeacherNodeViews';
 
 type Phase = 'empty' | 'generating' | 'ready';
-const TABS = ['Graph', 'Nội dung', 'Học viên', 'Điểm số', 'Hoạt động', 'Cài đặt'];
+const TABS = ['Lộ trình', 'Nội dung', 'Học viên', 'Điểm số'];
 const CARD = { w: 130, h: 64 };
 const NODE = { w: 190, h: 54 };
+const edgeKey = (from: string, to: string) => `${from}-${to}`;
 
 export default function TeacherCourseGraphPage() {
   const { courseId = 'CO2003' } = useParams();
@@ -39,6 +40,9 @@ export default function TeacherCourseGraphPage() {
   const [selCluster, setSelCluster] = useState<string | null>(null);
   const [selNode, setSelNode] = useState<string | null>(null);
   const [approved, setApproved] = useState<string[]>([]);
+  const [deletedNodes, setDeletedNodes] = useState<string[]>([]);
+  const [deletedEdges, setDeletedEdges] = useState<string[]>([]);
+  const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
 
   const ready = phase === 'ready';
   const { data: graph } = useAsync(() => (ready ? api.getTeacherGraph(courseId) : Promise.resolve(null)), [ready, courseId]);
@@ -56,13 +60,16 @@ export default function TeacherCourseGraphPage() {
   const openCluster = clusterId ? clusterMap.get(clusterId) : null;
 
   /* ---- canvas data ---- */
-  const overviewNodes: CanvasNode[] = clusters.map((c) => ({ id: c.id, x: c.x * 1.12, y: c.y, ...CARD }));
+  const overviewNodes: CanvasNode[] = clusters.filter((c) => !deletedNodes.includes(c.id)).map((c) => ({ id: c.id, x: c.x * 1.12, y: c.y, ...CARD }));
   const overviewEdges: CanvasEdge[] = (graph?.clusterEdges ?? [])
     .filter((e) => showRelated || e.kind === 'prereq')
+    .filter((e) => !deletedNodes.includes(e.from) && !deletedNodes.includes(e.to) && !deletedEdges.includes(edgeKey(e.from, e.to)))
     .map((e) => ({ ...e, active: !!selCluster && (e.from === selCluster || e.to === selCluster) }));
 
-  const innerNodes: CanvasNode[] = (clusterView?.nodes ?? []).map((n) => ({ id: n.id, x: n.x, y: n.y, ...NODE }));
-  const innerEdges: CanvasEdge[] = (clusterView?.edges ?? []).filter((e) => showRelated || e.kind === 'prereq');
+  const innerNodes: CanvasNode[] = (clusterView?.nodes ?? []).filter((n) => !deletedNodes.includes(n.id)).map((n) => ({ id: n.id, x: n.x, y: n.y, ...NODE }));
+  const innerEdges: CanvasEdge[] = (clusterView?.edges ?? [])
+    .filter((e) => showRelated || e.kind === 'prereq')
+    .filter((e) => !deletedNodes.includes(e.from) && !deletedNodes.includes(e.to) && !deletedEdges.includes(edgeKey(e.from, e.to)));
   const innerMap = new Map((clusterView?.nodes ?? []).map((n) => [n.id, n]));
 
   /* ---- actions ---- */
@@ -79,6 +86,19 @@ export default function TeacherCourseGraphPage() {
     if (next) { setClusterId(null); setSelNode(null); setSelCluster(next.id); }
   };
   const approveOne = (id: string) => setApproved((a) => [...a, id]);
+  const deleteSelectedNode = () => {
+    const selected = clusterId ? selNode : selCluster;
+    if (!selected || !window.confirm(`Xóa ${clusterId ? 'node' : 'cụm'} đã chọn?`)) return;
+    setDeletedNodes((nodes) => nodes.includes(selected) ? nodes : [...nodes, selected]);
+    setDeletedEdges((edges) => edges.filter((edge) => !edge.startsWith(`${selected}-`) && !edge.endsWith(`-${selected}`)));
+    if (clusterId) setSelNode(null);
+    else setSelCluster(null);
+  };
+  const deleteSelectedEdge = () => {
+    if (!selectedEdge || !window.confirm('Xóa cạnh đã chọn?')) return;
+    setDeletedEdges((edges) => edges.includes(selectedEdge) ? edges : [...edges, selectedEdge]);
+    setSelectedEdge(null);
+  };
 
   const total = graph?.stats;
   const rightPanel = heat && spot && !clusterId
@@ -98,13 +118,13 @@ export default function TeacherCourseGraphPage() {
       <div className="crumbs top">
         <a onClick={() => nav('/teacher/courses')}>Trang chủ</a><i>›</i>
         <a onClick={() => nav('/teacher/courses')}>Khóa học của tôi</a><i>›</i>
-        <a>Cấu trúc dữ liệu và giải thuật</a><i>›</i><b>Graph</b>
+        <a>Cấu trúc dữ liệu và giải thuật</a><i>›</i><b>Lộ trình</b>
       </div>
 
       <div className="course-subheader teacher">
         <button className={`round-btn left${leftOpen ? '' : ' off'}`} onClick={() => setLeftOpen((o) => !o)} aria-label="Hàng đợi"><List size={16} /></button>
         <div className="subheader-center">
-          <h1>Cấu trúc dữ liệu và giải thuật (CO2003)</h1>
+          <h1>{courseId === 'CO3093' ? 'Mạng máy tính (CO3093)' : 'Cấu trúc dữ liệu và giải thuật (CO2003)'}</h1>
           <div className="tabs-pill">{TABS.map((t, i) => <button key={t} className={i === 0 ? 'on' : ''}>{t}</button>)}</div>
         </div>
         <button className={`round-btn right${rightOpen ? '' : ' off'}`} onClick={() => setRightOpen((o) => !o)} aria-label="Inspector"><PanelRight size={16} /></button>
@@ -132,7 +152,7 @@ export default function TeacherCourseGraphPage() {
         <>
           <div className="graph-toolbar">
             <div className="crumbs small">
-              <a>Trang chủ</a><i>›</i><a>Khóa học của tôi</a><i>›</i><a>Cấu trúc dữ liệu và giải thuật</a><i>›</i><b>Graph</b>
+              <a>Trang chủ</a><i>›</i><a>Khóa học của tôi</a><i>›</i><a>Cấu trúc dữ liệu và giải thuật</a><i>›</i><b>Lộ trình</b>
               {openCluster && <><i>›</i><b>{openCluster.name}</b></>}
             </div>
             <span className="stats">{total?.nodes} node · {total?.edges} cạnh · {total?.drafts} bản nháp AI</span>
@@ -169,16 +189,26 @@ export default function TeacherCourseGraphPage() {
 
               {view === 'outcomes' ? (
                 <LoView />
+              ) : courseId === 'CO3093' ? (
+                <iframe
+                  className="prototype-graph-frame"
+                  src="/prototypes/graph.html?role=teacher"
+                  title="Đồ thị tri thức dành cho giảng viên"
+                />
               ) : clusterId ? (
                 <GraphCanvas key={`in-${clusterId}`} nodes={innerNodes} edges={innerEdges} fitKey={clusterId}
-                  onBackgroundClick={() => setSelNode(null)}
+                  selectedEdge={selectedEdge ?? undefined}
+                  onEdgeClick={(from, to) => setSelectedEdge(edgeKey(from, to))}
+                  onBackgroundClick={() => { setSelNode(null); setSelectedEdge(null); }}
                   renderNode={(id) => {
                     const n = innerMap.get(id)!;
                     return <ClusterNodeCard node={n} selected={selNode === id} onSelect={() => { setSelNode(id); setRightOpen(true); }} />;
                   }} />
               ) : (
                 <GraphCanvas key="overview" nodes={overviewNodes} edges={overviewEdges} fitKey="overview"
-                  onBackgroundClick={() => setSelCluster(null)}
+                  selectedEdge={selectedEdge ?? undefined}
+                  onEdgeClick={(from, to) => setSelectedEdge(edgeKey(from, to))}
+                  onBackgroundClick={() => { setSelCluster(null); setSelectedEdge(null); }}
                   renderNode={(id) => {
                     const c = clusterMap.get(id)!;
                     return <ClusterCard cluster={c} selected={selCluster === id} heat={heat}
@@ -192,6 +222,8 @@ export default function TeacherCourseGraphPage() {
                     <button><Plus size={12} /> Thêm node</button>
                     <button><Link2 size={12} /> Nối cạnh</button>
                     <button><Merge size={12} /> Gộp</button>
+                    <button onClick={deleteSelectedNode}><Trash2 size={12} /> Xóa node</button>
+                    <button onClick={deleteSelectedEdge}><Trash2 size={12} /> Xóa cạnh</button>
                   </div>
                   {heat && !clusterId ? (
                     <div className="legend heat-legend">
@@ -218,4 +250,3 @@ export default function TeacherCourseGraphPage() {
     </div>
   );
 }
-

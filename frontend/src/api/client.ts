@@ -25,11 +25,30 @@ export const api = {
   },
   getStudentCourses: (): Promise<StudentCourse[]> => wait(m.studentCourses),
   getTeacherCourses: (): Promise<TeacherCourse[]> => wait(m.teacherCourses),
+  createTeacherCourse(data: Omit<TeacherCourse, 'students' | 'pending' | 'published' | 'nodesWithContent' | 'totalNodes'>): Promise<TeacherCourse> {
+    const course: TeacherCourse = { ...data, students: 0, published: false, nodesWithContent: 0, totalNodes: 0 };
+    m.teacherCourses.unshift(course);
+    m.studentCourses.unshift({
+      id: course.id,
+      code: course.code,
+      title: course.title,
+      faculty: course.faculty,
+      lecturer: 'Nguyễn Văn Hùng',
+      progress: 0,
+      gap: 'Chưa có dữ liệu học tập',
+      deadline: '',
+      theme: course.theme,
+    });
+    return wait(course);
+  },
   getLearningOutcomes: (): Promise<LearningOutcome[]> => wait(m.learningOutcomes),
-  getStudentGraph: (_courseId: string, clusterId?: string): Promise<StudentGraph> =>
-    wait(clusterId === 'pointer' ? m.studentPointerCluster : m.studentOverview),
+  getStudentGraph: (courseId: string, clusterId?: string): Promise<StudentGraph> =>
+    wait(courseId === 'CO3093'
+      ? m.computerNetworksOverview
+      : clusterId === 'pointer' ? m.studentPointerCluster : m.studentOverview),
   getNodeDetail: (nodeId: string): Promise<NodeDetail> => wait(m.buildNodeDetail(nodeId), 60),
-  getTeacherGraph: (_courseId: string): Promise<TeacherGraphData> => wait(m.teacherGraph),
+  getTeacherGraph: (courseId: string): Promise<TeacherGraphData> =>
+    wait(courseId === 'CO3093' ? m.computerNetworksTeacherGraph : m.teacherGraph),
   getClusterView: (clusterId: string): Promise<ClusterView> => wait(m.buildClusterView(clusterId)),
   getReviewQueue: (_courseId: string): Promise<QueueSummary> => wait(m.reviewQueue),
   getHeatSpot: (clusterId?: string): Promise<HeatSpot> => wait(m.heatSpots[clusterId ?? ''] ?? m.heatSpots.pointer, 60),

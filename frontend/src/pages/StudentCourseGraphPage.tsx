@@ -1,4 +1,4 @@
-import { ArrowLeft, PanelRight, List } from 'lucide-react';
+import { ArrowLeft, PanelRight, List, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
@@ -19,14 +19,15 @@ export default function StudentCourseGraphPage() {
   const { language } = useLanguage();
   const { courseId = 'CO2003' } = useParams();
   const tabs = language === 'vi'
-    ? ['Bản đồ', 'Nội dung', 'Điểm số', 'Năng lực']
-    : ['Graph', 'Content', 'Grades', 'Competencies'];
+    ? ['Lộ trình kiến nghị', 'Lộ trình cá nhân hóa', 'Nội dung', 'Điểm số']
+    : ['Recommended path', 'Personalized path', 'Content', 'Grades'];
   const [cluster, setCluster] = useState<string | null>(null);
   const [lo, setLo] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [showRelated, setShowRelated] = useState(false);
   const [rightOpen, setRightOpen] = useState(true);
   const [outlineOpen, setOutlineOpen] = useState(false);
+  const [query, setQuery] = useState('');
 
   const { data: graph } = useAsync(() => api.getStudentGraph(courseId, cluster ?? undefined), [courseId, cluster]);
   const { data: los } = useAsync(() => api.getLearningOutcomes(), []);
@@ -66,12 +67,12 @@ export default function StudentCourseGraphPage() {
       <div className="course-subheader">
         <button className="round-btn left" aria-label="Mục lục" onClick={() => setOutlineOpen((o) => !o)}><List size={16} /></button>
         <div className="subheader-center">
-          <h1>Cấu trúc dữ liệu và giải thuật (CO2003)</h1>
+          <h1>{courseId === 'CO3093' ? 'Mạng máy tính (CO3093)' : 'Cấu trúc dữ liệu và giải thuật (CO2003)'}</h1>
           <div className="tabs-pill">
             {tabs.map((t, i) => <button key={t} className={i === 0 ? 'on' : ''} onClick={() => {
-              if (i === 1) navigate(`/courses/${courseId}/content`);
-              if (i === 2) navigate(`/courses/${courseId}/grades`);
-              if (i === 3) navigate(`/courses/${courseId}/competencies`);
+              if (i === 1) navigate(`/courses/${courseId}/personalized`);
+              if (i === 2) navigate(`/courses/${courseId}/content`);
+              if (i === 3) navigate(`/courses/${courseId}/grades`);
             }}>{t}</button>)}
           </div>
         </div>
@@ -86,6 +87,13 @@ export default function StudentCourseGraphPage() {
           </aside>
         )}
         <div className="graph-stage">
+          {courseId === 'CO3093' && (
+            <div className="prototype-toolbar">
+              <label><Search size={13} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm khái niệm..." /></label>
+              <button className={showRelated ? 'on' : ''} onClick={() => setShowRelated((v) => !v)}>Quan hệ liên quan</button>
+              <span>Đồ thị demo CO3093</span>
+            </div>
+          )}
           <div className="stage-top">
             {cluster ? (
               <div className="crumb-chip"><button onClick={back}><ArrowLeft size={11} /> Toàn khóa</button><span>/</span><b>Con trỏ</b></div>
@@ -94,16 +102,25 @@ export default function StudentCourseGraphPage() {
             )}
             <LegendInline showRelated={showRelated} onToggle={() => setShowRelated((v) => !v)} />
           </div>
-          <GraphCanvas
-            nodes={nodes}
-            edges={edges}
-            fitKey={cluster ?? 'root'}
-            onBackgroundClick={() => setSelected(null)}
-            renderNode={(id) => {
-              const n = nodeMap.get(id)!;
-              return <StudentNodeView node={n} selected={selected === id} dim={!!lo && n.lo !== lo} onClick={() => open(id)} />;
-            }}
-          />
+          {courseId === 'CO3093' ? (
+            <iframe
+              className="prototype-graph-frame"
+              src="/prototypes/graph.html?role=student"
+              title="Đồ thị tri thức dành cho sinh viên"
+            />
+          ) : (
+            <GraphCanvas
+              nodes={nodes}
+              edges={edges}
+              fitKey={cluster ?? 'root'}
+              onBackgroundClick={() => setSelected(null)}
+              renderNode={(id) => {
+                const n = nodeMap.get(id)!;
+                const missesSearch = !!query.trim() && !`${n.label} ${n.sub ?? ''}`.toLowerCase().includes(query.trim().toLowerCase());
+                return <StudentNodeView node={n} selected={selected === id} dim={(!!lo && n.lo !== lo) || missesSearch} onClick={() => open(id)} />;
+              }}
+            />
+          )}
         </div>
 
         {rightOpen && (selected && detail ? (

@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Edit3, FileText, Sigma, Users } from 'lucide
 import { AppHeader } from '../features/layout/AppHeader';
 import { useLanguage } from '../features/i18n/LanguageContext';
 
-type DetailTab = 'content' | 'grades' | 'competencies';
+type DetailTab = 'personalized' | 'content' | 'grades';
 
 interface ResourceItem {
   id: string;
@@ -79,10 +79,10 @@ export default function StudentCourseDetailPage() {
   );
 
   const tabs: { id: DetailTab | 'graph'; label: string }[] = [
-    { id: 'graph', label: isVi ? 'Bản đồ' : 'Graph' },
+    { id: 'graph', label: isVi ? 'Lộ trình kiến nghị' : 'Recommended path' },
+    { id: 'personalized', label: isVi ? 'Lộ trình cá nhân hóa' : 'Personalized path' },
     { id: 'content', label: isVi ? 'Nội dung' : 'Content' },
     { id: 'grades', label: isVi ? 'Điểm số' : 'Grades' },
-    { id: 'competencies', label: isVi ? 'Năng lực' : 'Competencies' },
   ];
 
   const selectTab = (id: DetailTab | 'graph') => {
@@ -176,10 +176,10 @@ export default function StudentCourseDetailPage() {
           </div>
         )}
 
-        {tab === 'competencies' && (
-          <div className="course-competencies-empty">
+        {tab === 'personalized' && (
+          <div className="course-personalized-empty">
             <Users size={28} />
-            <p>{isVi ? 'Không có chuẩn năng lực cụ thể nào được liên kết với khóa học này.' : 'No specific competencies are linked to this course.'}</p>
+            <p>{isVi ? 'Lộ trình học tập cá nhân hóa của bạn sẽ được hiển thị tại đây.' : 'Your personalized learning path will be displayed here.'}</p>
           </div>
         )}
       </main>

@@ -14,6 +14,11 @@ export const studentCourses: StudentCourse[] = [
     faculty: 'Khoa Khoa học Ứng dụng', lecturer: 'Nguyễn Văn Hùng', progress: 25,
     gap: 'Lỗ hổng: Xác suất có điều kiện · 51', deadline: '', theme: 'green',
   },
+  {
+    id: 'CO3093', code: 'CO3093', title: 'Mạng máy tính (CO3093)',
+    faculty: 'Khoa Khoa học Máy tính', lecturer: 'Nguyễn Văn Hùng', progress: 18,
+    gap: 'Lỗ hổng: TCP Congestion Control · 38', deadline: 'Hạn 20/11 · Thực hành TCP', theme: 'blue',
+  },
 ];
 
 export const teacherCourses: TeacherCourse[] = [
@@ -21,6 +26,7 @@ export const teacherCourses: TeacherCourse[] = [
   { id: 'CO2003-L03', code: 'CO2003-L03', title: 'Cấu trúc dữ liệu và giải thuật – Lớp mới (CO2003-L03)', faculty: 'Khoa Khoa học Ứng dụng', students: 0, published: false, nodesWithContent: 0, totalNodes: 0, theme: 'orange' },
   { id: 'CO1007', code: 'CO1007', title: 'Toán rời rạc (CO1007)', faculty: 'Khoa Khoa học Ứng dụng', students: 64, published: true, nodesWithContent: 30, totalNodes: 30, theme: 'slate' },
   { id: 'MT2013', code: 'MT2013', title: 'Xác suất thống kê (MT2013)', faculty: 'Khoa Khoa học Ứng dụng', students: 38, published: true, nodesWithContent: 20, totalNodes: 40, theme: 'green' },
+  { id: 'CO3093', code: 'CO3093', title: 'Mạng máy tính (CO3093)', faculty: 'Khoa Khoa học Máy tính', students: 56, pending: 4, published: true, nodesWithContent: 86, totalNodes: 112, theme: 'blue' },
 ];
 
 export const learningOutcomes: LearningOutcome[] = [
@@ -58,6 +64,34 @@ export const studentOverview: StudentGraph = {
     { from: 'heap', to: 'sort', kind: 'prereq' },
     { from: 'heap', to: 'graph', kind: 'prereq' },
     { from: 'complexity', to: 'sort', kind: 'concept' },
+  ],
+};
+
+export const computerNetworksOverview: StudentGraph = {
+  nodes: [
+    { id: 'network-edge', label: 'Network Edge', sub: '3/5 node · 60%', x: 0, y: 55, status: 'progress', mastery: 60, lo: 'LO1.1' },
+    { id: 'internet-structure', label: 'Cấu trúc Internet', sub: '4/4 node · Đã vững', x: 0, y: 195, status: 'mastered', mastery: 100, lo: 'LO1.2' },
+    { id: 'application', label: 'Tầng ứng dụng', sub: '5/8 node · 62%', x: 210, y: 125, status: 'progress', mastery: 62, lo: 'LO2.1' },
+    { id: 'http', label: 'HTTP & Web', sub: '6/9 node · 71%', x: 410, y: 55, status: 'progress', mastery: 71, lo: 'LO2.2' },
+    { id: 'dns', label: 'DNS', sub: '1/5 node · 20%', x: 410, y: 195, status: 'review', mastery: 20, lo: 'LO2.2' },
+    { id: 'transport', label: 'Tầng giao vận', sub: '2/10 node · 24%', x: 610, y: 125, status: 'review', mastery: 24, lo: 'LO3.1' },
+    { id: 'tcp-udp', label: 'TCP & UDP', sub: '0/6 node · Khoá', x: 810, y: 55, status: 'locked', lo: 'LO3.1' },
+    { id: 'reliable-transfer', label: 'Truyền tin tin cậy', sub: '0/8 node · Khoá', x: 810, y: 195, status: 'locked', lo: 'LO3.2' },
+    { id: 'network-layer', label: 'Tầng mạng', sub: '0/12 node · Khoá', x: 1010, y: 125, status: 'locked', lo: 'LO4.1' },
+    { id: 'security', label: 'Bảo mật mạng', sub: '0/8 node · Khoá', x: 1210, y: 125, status: 'locked', lo: 'LO6.1' },
+  ],
+  edges: [
+    { from: 'network-edge', to: 'application', kind: 'prereq' },
+    { from: 'internet-structure', to: 'application', kind: 'prereq' },
+    { from: 'application', to: 'http', kind: 'prereq' },
+    { from: 'application', to: 'dns', kind: 'related' },
+    { from: 'http', to: 'transport', kind: 'concept' },
+    { from: 'dns', to: 'transport', kind: 'prereq' },
+    { from: 'transport', to: 'tcp-udp', kind: 'prereq' },
+    { from: 'transport', to: 'reliable-transfer', kind: 'prereq' },
+    { from: 'tcp-udp', to: 'network-layer', kind: 'prereq' },
+    { from: 'reliable-transfer', to: 'network-layer', kind: 'related' },
+    { from: 'network-layer', to: 'security', kind: 'concept' },
   ],
 };
 
@@ -151,6 +185,30 @@ export const teacherGraph: TeacherGraphData = {
     { from: 'complexity', to: 'sort', kind: 'prereq' },
     { from: 'complexity', to: 'queue', kind: 'concept' },
     { from: 'pointer', to: 'stack', kind: 'concept' },
+  ],
+};
+
+export const computerNetworksTeacherGraph: TeacherGraphData = {
+  stats: { nodes: 112, edges: 134, drafts: 4 },
+  clusters: [
+    { id: 'network-edge', index: 1, name: 'Network Edge', nodeCount: 12, x: 0, y: 70, lo: ['LO1.1'], struggle: 18, approved: true },
+    { id: 'internet-core', index: 2, name: 'Cấu trúc Internet', nodeCount: 15, x: 165, y: 210, lo: ['LO1.2'], struggle: 14, approved: true },
+    { id: 'application', index: 3, name: 'Tầng ứng dụng', nodeCount: 18, x: 330, y: 70, lo: ['LO2.1'], issue: { label: '2 cần xử lý', level: 'warn' }, struggle: 26, approved: false },
+    { id: 'http-dns', index: 4, name: 'HTTP, DNS & CDN', nodeCount: 24, x: 495, y: 210, lo: ['LO2.2'], issue: { label: 'Chưa gán LO', level: 'error' }, struggle: 31, approved: false },
+    { id: 'transport', index: 5, name: 'Tầng giao vận', nodeCount: 22, x: 660, y: 70, lo: ['LO3.1'], struggle: 38, approved: false },
+    { id: 'tcp', index: 6, name: 'TCP & kiểm soát tắc nghẽn', nodeCount: 21, x: 825, y: 210, lo: ['LO3.2'], struggle: 42, approved: false },
+    { id: 'network-layer', index: 7, name: 'Định tuyến mạng', nodeCount: 18, x: 990, y: 70, lo: ['LO4.1', 'LO4.2'], struggle: 24, approved: false },
+    { id: 'security', index: 8, name: 'Bảo mật mạng', nodeCount: 14, x: 1155, y: 210, lo: ['LO6.1', 'LO6.2'], struggle: 16, approved: false },
+  ],
+  clusterEdges: [
+    { from: 'network-edge', to: 'application', kind: 'prereq' },
+    { from: 'internet-core', to: 'application', kind: 'prereq' },
+    { from: 'application', to: 'http-dns', kind: 'prereq' },
+    { from: 'http-dns', to: 'transport', kind: 'concept' },
+    { from: 'transport', to: 'tcp', kind: 'prereq' },
+    { from: 'tcp', to: 'network-layer', kind: 'prereq' },
+    { from: 'network-layer', to: 'security', kind: 'related' },
+    { from: 'application', to: 'security', kind: 'concept' },
   ],
 };
 
