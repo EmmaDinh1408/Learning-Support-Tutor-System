@@ -17,7 +17,8 @@ const NODE_H = 96;
 export default function StudentCourseGraphPage() {
   const navigate = useNavigate();
   const { language } = useLanguage();
-  const { courseId = 'CO2003' } = useParams();
+  const { courseId = '' } = useParams();
+  const usePrototypeGraph = courseId === 'CO3093' && import.meta.env.VITE_USE_MOCK_API !== 'false';
   const tabs = language === 'vi'
     ? ['Lộ trình kiến nghị', 'Lộ trình cá nhân hóa', 'Nội dung', 'Điểm số']
     : ['Recommended path', 'Personalized path', 'Content', 'Grades'];
@@ -29,9 +30,10 @@ export default function StudentCourseGraphPage() {
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [query, setQuery] = useState('');
 
-  const { data: graph } = useAsync(() => api.getStudentGraph(courseId, cluster ?? undefined), [courseId, cluster]);
-  const { data: los } = useAsync(() => api.getLearningOutcomes(), []);
-  const { data: detail } = useAsync(() => (selected ? api.getNodeDetail(selected) : Promise.resolve(null)), [selected]);
+  const { data: courses, error: coursesError } = useAsync(() => api.getStudentCourses(), []);
+  const { data: graph, error: graphError } = useAsync(() => api.getStudentGraph(courseId, cluster ?? undefined), [courseId, cluster]);
+  const { data: los, error: outcomesError } = useAsync(() => api.getLearningOutcomes(courseId), [courseId]);
+  const { data: detail, error: detailError } = useAsync(() => (selected ? api.getNodeDetail(selected) : Promise.resolve(null)), [selected]);
 
   const nodes: CanvasNode[] = useMemo(
     () => (graph?.nodes ?? []).map((n) => ({ id: n.id, x: n.x, y: n.y, w: NODE_W, h: NODE_H, inset: NODE_W / 2 - 17 })),
@@ -59,7 +61,8 @@ export default function StudentCourseGraphPage() {
   };
 
   const back = () => { setCluster(null); setSelected(null); };
-  const reviewTarget = { title: 'Cấp phát động', cluster: 'Con trỏ', mastery: 42 };
+  const reviewTarget = graph?.nextReview ?? null;
+  const courseName = courses?.find((course) => course.id === courseId)?.title ?? courseId;
 
   return (
     <div className="page graph-page">
@@ -67,7 +70,7 @@ export default function StudentCourseGraphPage() {
       <div className="course-subheader">
         <button className="round-btn left" aria-label="Mục lục" onClick={() => setOutlineOpen((o) => !o)}><List size={16} /></button>
         <div className="subheader-center">
-          <h1>{courseId === 'CO3093' ? 'Mạng máy tính (CO3093)' : 'Cấu trúc dữ liệu và giải thuật (CO2003)'}</h1>
+          <h1>{courseName}</h1>
           <div className="tabs-pill">
             {tabs.map((t, i) => <button key={t} className={i === 0 ? 'on' : ''} onClick={() => {
               if (i === 1) navigate(`/courses/${courseId}/personalized`);
@@ -87,11 +90,14 @@ export default function StudentCourseGraphPage() {
           </aside>
         )}
         <div className="graph-stage">
-          {courseId === 'CO3093' && (
+          {(graphError || outcomesError || coursesError) && (
+            <p className="form-error" role="alert">{graphError?.message ?? outcomesError?.message ?? coursesError?.message}</p>
+          )}
+          {usePrototypeGraph && (
             <div className="prototype-toolbar">
               <label><Search size={13} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Tìm khái niệm..." /></label>
               <button className={showRelated ? 'on' : ''} onClick={() => setShowRelated((v) => !v)}>Quan hệ liên quan</button>
-              <span>Đồ thị demo CO3093</span>
+              <span>{language === 'vi' ? 'Đồ thị kiến thức' : 'Knowledge graph'}</span>
             </div>
           )}
           <div className="stage-top">
@@ -102,7 +108,7 @@ export default function StudentCourseGraphPage() {
             )}
             <LegendInline showRelated={showRelated} onToggle={() => setShowRelated((v) => !v)} />
           </div>
-          {courseId === 'CO3093' ? (
+          {usePrototypeGraph ? (
             <iframe
               className="prototype-graph-frame"
               src="/prototypes/graph.html?role=student"
@@ -126,8 +132,11 @@ export default function StudentCourseGraphPage() {
         {rightOpen && (selected && detail ? (
           <NodeDetailPanel detail={detail} />
         ) : (
-          <LoPanel los={los ?? []} selected={lo} onSelect={setLo} next={reviewTarget}
-            onReview={() => { setCluster('pointer'); setSelected('ptr_alloc'); }} />
+          <>
+            {detailError && <p className="form-error" role="alert">{detailError.message}</p>}
+            <LoPanel los={los ?? []} selected={lo} onSelect={setLo} next={reviewTarget}
+              onReview={() => { setCluster('pointer'); setSelected('ptr_alloc'); }} />
+          </>
         ))}
       </div>
     </div>

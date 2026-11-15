@@ -13,62 +13,31 @@ import { Link } from "react-router-dom";
 import { AppHeader } from "../features/layout/AppHeader";
 import { useAuth } from "../features/auth/AuthContext";
 import { useLanguage } from "../features/i18n/LanguageContext";
-
-interface SlideItem {
-  id: number;
-  title: string;
-  subtitle: string;
-  linkText: string;
-  imageUrl: string;
-}
-
-const SLIDES: SlideItem[] = [
-  {
-    id: 1,
-    title: "Hướng dẫn sử dụng hệ thống",
-    subtitle: "Dành cho Giảng viên & Sinh viên (User Guide)",
-    linkText: "Xem chi tiết",
-    imageUrl:
-      "https://images.unsplash.com/photo-1541829070764-84a7d30dd3f3?q=80&w=1600&auto=format&fit=crop"
-  },
-  {
-    id: 2,
-    title: "Thông tin Hoạt động Sinh viên",
-    subtitle: "Student Affairs & Ngoại khóa 2026",
-    linkText: "Khám phá ngay",
-    imageUrl:
-      "https://images.unsplash.com/photo-1523240795612-9a054b0db644?q=80&w=1600&auto=format&fit=crop"
-  },
-  {
-    id: 3,
-    title: "Thông báo Học vụ & Đăng ký môn",
-    subtitle: "Kế hoạch đào tạo và thời khóa biểu học kỳ mới",
-    linkText: "Xem lịch trình",
-    imageUrl:
-      "https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?q=80&w=1600&auto=format&fit=crop"
-  }
-];
+import { api } from "../api/client";
+import { useAsync } from "../features/common/useAsync";
 
 export const HomePage: React.FC = () => {
   const { language, t } = useLanguage();
   const [currentSlide, setCurrentSlide] = useState(0);
   const { user } = useAuth();
   const coursesPath = user?.role === "teacher" ? "/teacher/courses" : "/courses";
+  const { data, error } = useAsync(() => api.getHomeSlides(), []);
+  const slides = data ?? [];
 
   // Tự động chuyển slide sau mỗi 6 giây
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % SLIDES.length);
+      setCurrentSlide((prev) => (prev + 1) % Math.max(slides.length, 1));
     }, 6000);
     return () => clearInterval(timer);
-  }, []);
+  }, [slides.length]);
 
   const handlePrevSlide = () => {
-    setCurrentSlide((prev) => (prev === 0 ? SLIDES.length - 1 : prev - 1));
+    setCurrentSlide((prev) => (prev === 0 ? slides.length - 1 : prev - 1));
   };
 
   const handleNextSlide = () => {
-    setCurrentSlide((prev) => (prev + 1) % SLIDES.length);
+    setCurrentSlide((prev) => (prev + 1) % slides.length);
   };
 
   const scrollToTop = () => {
@@ -81,7 +50,8 @@ export const HomePage: React.FC = () => {
 
       {/* 2. Hero Slider Banner */}
       <section className="home-slider">
-        {SLIDES.map((slide, index) => (
+        {error && <p className="form-error" role="alert">{error.message}</p>}
+        {slides.map((slide, index) => (
           <div
             key={slide.id}
             className={`home-slide ${index === currentSlide ? "active" : ""}`}
@@ -89,7 +59,7 @@ export const HomePage: React.FC = () => {
             {/* Background image */}
             <img
               src={slide.imageUrl}
-              alt={slide.title}
+              alt={language === 'vi' ? slide.titleVi : slide.titleEn}
               className="home-slide-image"
             />
             {/* Lớp phủ gradient nhẹ */}
@@ -98,18 +68,10 @@ export const HomePage: React.FC = () => {
             {/* Banner Content Card (Glassmorphism) */}
             <div className="home-slide-content-wrap">
               <div className="home-slide-card">
-                <h2>{language === "en" ? [
-                  "System user guide",
-                  "Student Activities",
-                  "Academic Notices & Course Registration",
-                ][slide.id - 1] : slide.title}</h2>
-                <p>{language === "en" ? [
-                  "For lecturers and students (User Guide)",
-                  "Student Affairs & Extracurricular activities 2026",
-                  "Academic plan and new semester timetable",
-                ][slide.id - 1] : slide.subtitle}</p>
+                <h2>{language === "en" ? slide.titleEn : slide.titleVi}</h2>
+                  <p>{language === "en" ? slide.subtitleEn : slide.subtitleVi}</p>
                 <Link to={coursesPath} className="home-slide-link">
-                  <span>{language === "en" ? ["View details", "Explore now", "View schedule"][slide.id - 1] : slide.linkText}</span>
+                    <span>{language === "en" ? slide.linkEn : slide.linkVi}</span>
                   <ExternalLink size={14} />
                 </Link>
               </div>
@@ -118,24 +80,24 @@ export const HomePage: React.FC = () => {
         ))}
 
         {/* Nút điều hướng Carousel */}
-        <button
+        {slides.length > 1 && <button
           onClick={handlePrevSlide}
           className="home-slider-arrow home-slider-prev"
-          aria-label="Previous Slide"
+          aria-label={language === "vi" ? "Slide trước" : "Previous slide"}
         >
           <ChevronLeft size={18} />
-        </button>
-        <button
+        </button>}
+        {slides.length > 1 && <button
           onClick={handleNextSlide}
           className="home-slider-arrow home-slider-next"
-          aria-label="Next Slide"
+          aria-label={language === "vi" ? "Slide tiếp theo" : "Next slide"}
         >
           <ChevronRight size={18} />
-        </button>
+        </button>}
 
         {/* Slide Indicator Dots */}
-        <div className="home-slider-dots">
-          {SLIDES.map((_, idx) => (
+        {slides.length > 1 && <div className="home-slider-dots">
+          {slides.map((_, idx) => (
             <button
               key={idx}
               onClick={() => setCurrentSlide(idx)}
@@ -143,7 +105,7 @@ export const HomePage: React.FC = () => {
               className={idx === currentSlide ? "active" : ""}
             />
           ))}
-        </div>
+        </div>}
       </section>
 
       {/* 3. Nội dung mở rộng Dashboard / Tiện ích */}

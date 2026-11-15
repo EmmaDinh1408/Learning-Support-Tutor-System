@@ -1,7 +1,9 @@
 import { FolderOpen, Pencil, Plus, Target, X, Sparkles, CheckCircle2 } from 'lucide-react';
 import type { TeacherCluster, TeacherNode } from '../../types';
+import { teacherNodeStatusLabel } from './statusLabels';
 
 interface Props {
+  courseName: string;
   cluster?: TeacherCluster | null;
   node?: TeacherNode | null;
   onOpenCluster: (id: string) => void;
@@ -9,14 +11,14 @@ interface Props {
   onEditNode: (id: string) => void;
 }
 
-export function TeacherInspector({ cluster, node, onOpenCluster, onApprove, onEditNode }: Props) {
+export function TeacherInspector({ courseName, cluster, node, onOpenCluster, onApprove, onEditNode }: Props) {
   if (node && !node.ghost) {
     return (
       <aside className="inspector">
         <div className="inspector-head"><div><small>INSPECTOR</small><h3>Chi tiết node</h3></div></div>
         <div className="inspector-body">
           <h2 className="ins-title">{node.name}</h2>
-          <span className={`status-chip ${node.status === 'Đã duyệt' ? 'ok' : 'warn'}`}>{node.status}</span>
+          <span className={`status-chip ${node.status === 'approved' ? 'ok' : 'warn'}`}>{teacherNodeStatusLabel(node.status)}</span>
           <div className="stat-grid">
             <div><b>{node.contents ?? 0}</b><small>tài nguyên</small></div>
             <div><b>{node.questions ?? 0}</b><small>câu kiểm tra</small></div>
@@ -31,7 +33,7 @@ export function TeacherInspector({ cluster, node, onOpenCluster, onApprove, onEd
             {(node.lo ?? []).map((l) => <span key={l} className="lo-chip x">{l} <X size={10} /></span>)}
             <button className="lo-chip add"><Plus size={10} /> Thêm LO</button>
           </div>
-          <div className="ai-source"><Sparkles size={12} /><div><b>Nguồn AI</b><span>Đối chiếu đã cụm CO2003</span></div></div>
+          <div className="ai-source"><Sparkles size={12} /><div><b>Nguồn AI</b><span>Đối chiếu khóa học {courseName}</span></div></div>
         </div>
         <div className="inspector-foot">
           <button className="btn btn-outline btn-block" onClick={() => onEditNode(node.id)}><Pencil size={12} /> Sửa</button>

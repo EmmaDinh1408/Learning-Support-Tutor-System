@@ -13,6 +13,7 @@ import { TeacherInspector } from '../features/teacher/TeacherInspector';
 import { HeatPanel } from '../features/teacher/HeatPanel';
 import { LoView } from '../features/teacher/LoView';
 import { ClusterCard, ClusterNodeCard } from '../features/teacher/TeacherNodeViews';
+import { useLanguage } from '../features/i18n/LanguageContext';
 
 type Phase = 'empty' | 'generating' | 'ready';
 const TABS = ['Lộ trình', 'Nội dung', 'Học viên', 'Điểm số'];
@@ -21,7 +22,9 @@ const NODE = { w: 190, h: 54 };
 const edgeKey = (from: string, to: string) => `${from}-${to}`;
 
 export default function TeacherCourseGraphPage() {
-  const { courseId = 'CO2003' } = useParams();
+  const { language } = useLanguage();
+  const { courseId = '' } = useParams();
+  const usePrototypeGraph = courseId === 'CO3093' && import.meta.env.VITE_USE_MOCK_API !== 'false';
   const nav = useNavigate();
   const storeKey = `g4lms.graph.${courseId}`;
   const [phase, setPhaseState] = useState<Phase>(() => (localStorage.getItem(storeKey) as Phase) || 'empty');
@@ -45,12 +48,15 @@ export default function TeacherCourseGraphPage() {
   const [selectedEdge, setSelectedEdge] = useState<string | null>(null);
 
   const ready = phase === 'ready';
-  const { data: graph } = useAsync(() => (ready ? api.getTeacherGraph(courseId) : Promise.resolve(null)), [ready, courseId]);
-  const { data: queue } = useAsync(() => (ready ? api.getReviewQueue(courseId) : Promise.resolve(null)), [ready, courseId]);
-  const { data: files } = useAsync(() => api.getCoursePdfs(courseId), [courseId]);
-  const { data: clusterView } = useAsync(() => (clusterId ? api.getClusterView(clusterId) : Promise.resolve(null)), [clusterId]);
+  const { data: graph, error: graphError } = useAsync(() => (ready ? api.getTeacherGraph(courseId) : Promise.resolve(null)), [ready, courseId]);
+  const { data: queue, error: queueError } = useAsync(() => (ready ? api.getReviewQueue(courseId) : Promise.resolve(null)), [ready, courseId]);
+  const { data: files, error: filesError } = useAsync(() => api.getCoursePdfs(courseId), [courseId]);
+  const { data: clusterView, error: clusterError } = useAsync(() => (clusterId ? api.getClusterView(clusterId) : Promise.resolve(null)), [clusterId]);
   const heatKey = selCluster && (selCluster === 'pointer' || selCluster === 'hash') ? selCluster : 'pointer';
-  const { data: spot } = useAsync(() => (heat ? api.getHeatSpot(heatKey) : Promise.resolve(null)), [heat, heatKey]);
+  const { data: spot, error: heatError } = useAsync(() => (heat ? api.getHeatSpot(heatKey) : Promise.resolve(null)), [heat, heatKey]);
+  const { data: courses, error: coursesError } = useAsync(() => api.getTeacherCourses(), []);
+  const serviceError = [graphError, queueError, filesError, clusterError, heatError, coursesError].find(Boolean);
+  const courseName = courses?.find((course) => course.id === courseId)?.title ?? courseId;
 
   const clusters = useMemo(
     () => (graph?.clusters ?? []).map((c) => ({ ...c, approved: c.approved || approved.includes(c.id) })),
@@ -103,7 +109,8 @@ export default function TeacherCourseGraphPage() {
   const total = graph?.stats;
   const rightPanel = heat && spot && !clusterId
     ? <HeatPanel spot={spot} />
-    : <TeacherInspector
+    :     <TeacherInspector
+      courseName={courseName}
         cluster={selCluster ? clusterMap.get(selCluster) : null}
         node={selNode ? innerMap.get(selNode) : null}
         onOpenCluster={enter}
@@ -118,17 +125,22 @@ export default function TeacherCourseGraphPage() {
       <div className="crumbs top">
         <a onClick={() => nav('/teacher/courses')}>Trang chủ</a><i>›</i>
         <a onClick={() => nav('/teacher/courses')}>Khóa học của tôi</a><i>›</i>
-        <a>Cấu trúc dữ liệu và giải thuật</a><i>›</i><b>Lộ trình</b>
+        <a>{courseName}</a><i>›</i><b>Lộ trình</b>
       </div>
 
       <div className="course-subheader teacher">
         <button className={`round-btn left${leftOpen ? '' : ' off'}`} onClick={() => setLeftOpen((o) => !o)} aria-label="Hàng đợi"><List size={16} /></button>
         <div className="subheader-center">
-          <h1>{courseId === 'CO3093' ? 'Mạng máy tính (CO3093)' : 'Cấu trúc dữ liệu và giải thuật (CO2003)'}</h1>
-          <div className="tabs-pill">{TABS.map((t, i) => <button key={t} className={i === 0 ? 'on' : ''}>{t}</button>)}</div>
+          <h1>{courseName}</h1>
+          <div className="tabs-pill">{TABS.map((t, i) => <button key={t} className={i === 0 ? 'on' : ''}
+            onClick={() => nav(i === 0 ? `/teacher/courses/${courseId}/graph` : `/teacher/courses/${courseId}/${['', 'content', 'students', 'grades'][i]}`)}>
+            {t}
+          </button>)}</div>
         </div>
         <button className={`round-btn right${rightOpen ? '' : ' off'}`} onClick={() => setRightOpen((o) => !o)} aria-label="Inspector"><PanelRight size={16} /></button>
       </div>
+
+      {serviceError && <p className="form-error graph-error" role="alert">{serviceError.message}</p>}
 
       {phase === 'empty' && (
         <div className="empty-wrap">
@@ -143,7 +155,7 @@ export default function TeacherCourseGraphPage() {
 
       {phase === 'generating' && (
         <div className="gen-page">
-          <GenerationProgress fileLabel={fileLabel || 'Cau_truc_du_lieu_va_giai_thuat_Giao_trinh.pdf - 120 trang - 4,2 MB'}
+          <GenerationProgress fileLabel={fileLabel || (language === 'vi' ? 'Tài liệu khóa học' : 'Course material')}
             onDone={done} onCancel={() => setPhase('empty')} onChangeFile={() => setPicker(true)} />
         </div>
       )}
@@ -152,7 +164,9 @@ export default function TeacherCourseGraphPage() {
         <>
           <div className="graph-toolbar">
             <div className="crumbs small">
-              <a>Trang chủ</a><i>›</i><a>Khóa học của tôi</a><i>›</i><a>Cấu trúc dữ liệu và giải thuật</a><i>›</i><b>Lộ trình</b>
+              <a>{language === 'vi' ? 'Trang chủ' : 'Home'}</a><i>›</i>
+              <a>{language === 'vi' ? 'Khóa học của tôi' : 'My courses'}</a><i>›</i>
+              <a>{courseName}</a><i>›</i><b>{language === 'vi' ? 'Lộ trình' : 'Learning path'}</b>
               {openCluster && <><i>›</i><b>{openCluster.name}</b></>}
             </div>
             <span className="stats">{total?.nodes} node · {total?.edges} cạnh · {total?.drafts} bản nháp AI</span>
@@ -188,8 +202,8 @@ export default function TeacherCourseGraphPage() {
               )}
 
               {view === 'outcomes' ? (
-                <LoView />
-              ) : courseId === 'CO3093' ? (
+                <LoView courseId={courseId} />
+              ) : usePrototypeGraph ? (
                 <iframe
                   className="prototype-graph-frame"
                   src="/prototypes/graph.html?role=teacher"

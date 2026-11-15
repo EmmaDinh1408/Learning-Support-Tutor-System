@@ -1,30 +1,46 @@
 # G4LMS Frontend
 
-React 18 + TypeScript + Vite.
+React 18, TypeScript, and Vite frontend for student and teacher LMS workflows.
 
-```bash
+## Run locally
+
+```powershell
+cd frontend
 npm install
-npm run dev      # http://localhost:5173
+npm run dev
 npm run build
 ```
 
-Đăng nhập demo: chọn tab **Học viên** hoặc **Giảng viên**, bấm đăng nhập (không cần nhập gì).
+By default, the UI uses fixtures and an in-memory mock API in the repository
+root `mockdata/` folder. Choose **Học viên** or **Giảng viên** on the login
+screen; the mock provider accepts an empty password.
 
-## Cấu trúc
+To connect a backend, create `frontend/.env.local`:
 
+```dotenv
+VITE_API_URL=http://localhost:8000/api
+VITE_USE_MOCK_API=false
 ```
-frontend/
-├─ index.html
-├─ package.json
-└─ src/
-   ├─ main.tsx · App.tsx          # router + guard theo vai trò
-   ├─ types/                      # kiểu dữ liệu dùng chung
-   ├─ api/                        # client.ts (thay phần thân bằng fetch khi có backend) + mockData.ts
-   ├─ pages/                      # Login, Student/Teacher Courses, Student/Teacher Course Graph, Teacher Node Editor
-   ├─ features/
-   │  ├─ auth · layout · common   # AuthContext, AppHeader, ProgressBar, useAsync
-   │  ├─ courses                  # thẻ khoá học + thanh lọc
-   │  ├─ graph                    # GraphCanvas (SVG pan/zoom), node học viên, panel LO/chi tiết
-   │  └─ teacher                  # modal chọn PDF, tiến trình tạo graph, hàng đợi, inspector, heatmap, LO view
-   └─ styles/global.css
+
+See the [API contract](../docs/api/README.md) for routes, payloads, roles, and
+error handling expected by the frontend. The backend route modules are not yet
+implemented, so use mock mode until those endpoints are available.
+
+## Structure
+
+```text
+mockdata/                     typed demo fixtures and mock API provider
+frontend/src/api/client.ts    typed HTTP adapter; mock/real API switch
+frontend/src/types/           shared frontend API/domain types
+frontend/src/features/        auth, layout, graph, course and teacher UI
+frontend/src/pages/           role-protected LMS pages
+frontend/src/styles/          shared styles
+docs/api/README.md            backend API contract
 ```
+
+Student workflows include courses, course materials and announcements,
+learning graphs, overall and per-course grades, assignment submissions, timed
+quizzes, attendance history, and conversations. Teacher workflows include
+course creation, course graphs, announcements, rosters, gradebook views,
+assignment and quiz authoring, attendance management, file uploads, and
+conversations. Mock uploads retain metadata only; file bytes require a backend.

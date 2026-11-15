@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react';
 import type { TeacherCluster, TeacherNode } from '../../types';
+import { teacherNodeStatusLabel } from './statusLabels';
 
 export type HeatLevel = 'high' | 'mid' | 'low';
 export const heatLevel = (pct: number): HeatLevel => (pct >= 30 ? 'high' : pct >= 20 ? 'mid' : 'low');
@@ -48,9 +49,9 @@ export function ClusterNodeCard({ node, selected, onSelect }: NodeProps) {
     );
   }
   return (
-    <div className={`tn${selected ? ' sel' : ''}${node.status === 'Bản nháp' ? ' draft' : ''}`} onClick={onSelect}>
+    <div className={`tn${selected ? ' sel' : ''}${node.status === 'draft' ? ' draft' : ''}`} onClick={onSelect}>
       <b>{node.name}</b>
-      <small>{node.status}</small>
+      <small>{teacherNodeStatusLabel(node.status)}</small>
     </div>
   );
 }

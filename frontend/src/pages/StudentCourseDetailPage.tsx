@@ -1,82 +1,28 @@
-import { useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { ChevronDown, ChevronRight, Edit3, FileText, Sigma, Users } from 'lucide-react';
+import { useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Bell, CalendarCheck, ChevronDown, ChevronRight, ClipboardList, Edit3, FileText, Sigma, Users } from 'lucide-react';
+import { api } from '../api/client';
 import { AppHeader } from '../features/layout/AppHeader';
+import { useAsync } from '../features/common/useAsync';
 import { useLanguage } from '../features/i18n/LanguageContext';
+import type { CourseSection } from '../types';
 
 type DetailTab = 'personalized' | 'content' | 'grades';
 
-interface ResourceItem {
-  id: string;
-  nameVi: string;
-  nameEn: string;
-}
-
-interface CourseSection {
-  id: string;
-  titleVi: string;
-  titleEn: string;
-  badgeVi?: string;
-  badgeEn?: string;
-  items: ResourceItem[];
-}
-
-const SECTIONS: CourseSection[] = [
-  { id: 'announcements', titleVi: 'Thông báo', titleEn: 'Announcements', items: [] },
-  { id: 'assignments', titleVi: 'Bài tập lớn', titleEn: 'Large assignments', items: [] },
-  {
-    id: 'materials',
-    titleVi: 'Tài liệu môn học',
-    titleEn: 'Course materials',
-    items: [
-      { id: 'm1', nameVi: 'Đề cương môn học', nameEn: 'Course syllabus' },
-      { id: 'm2', nameVi: 'Sách tham khảo 1', nameEn: 'Reference book 1' },
-      { id: 'm3', nameVi: 'Sách tham khảo số 2', nameEn: 'Reference book 2' },
-    ],
-  },
-  {
-    id: 'quizzes',
-    titleVi: 'Đề ôn luyện và Quiz',
-    titleEn: 'Practice exercises and quizzes',
-    badgeVi: 'Chưa mở',
-    badgeEn: 'Not available',
-    items: [],
-  },
-  {
-    id: 'ch0',
-    titleVi: 'Chương 1',
-    titleEn: 'Chapter 1',
-    items: [{ id: 'c0_1', nameVi: 'Slide bài giảng C0', nameEn: 'Lecture slides C0' }],
-  },
-  {
-    id: 'ch1',
-    titleVi: 'Chương 2',
-    titleEn: 'Chapter 2',
-    items: [{ id: 'c1_1', nameVi: 'Slide bài giảng C1', nameEn: 'Lecture slides C1' }],
-  },
-];
-
-const GRADES = [
-  { category: 'manual', titleVi: 'Giữa kỳ', titleEn: 'Midterm', subVi: 'MỤC THỦ CÔNG', subEn: 'MANUAL ITEM', weight: '-', score: '9,00', range: '0-10', percentage: '60,00 %', feedback: '-', contribution: '-' },
-  { category: 'manual', titleVi: 'BTL', titleEn: 'Course project', subVi: 'MỤC THỦ CÔNG', subEn: 'MANUAL ITEM', weight: '-', score: '-', range: '0-10', percentage: '-', feedback: '-', contribution: '-' },
-  { category: 'manual', titleVi: 'Cuối kỳ', titleEn: 'Final exam', subVi: 'MỤC THỦ CÔNG', subEn: 'MANUAL ITEM', weight: '-', score: '-', range: '0-13', percentage: '-', feedback: '-', contribution: '-' },
-  { category: 'attendance', titleVi: 'Điểm danh A01', titleEn: 'Attendance A01', subVi: 'Điểm danh', subEn: 'ATTENDANCE', weight: '-', score: '-', range: '0-100', percentage: '-', feedback: '-', contribution: '-' },
-  { category: 'attendance', titleVi: 'Điểm danh A02', titleEn: 'Attendance A02', subVi: 'Điểm danh', subEn: 'ATTENDANCE', weight: '-', score: '100,00', range: '0-100', percentage: '100,00 %', feedback: '-', contribution: '-' },
-];
-
 export default function StudentCourseDetailPage() {
-  const { courseId = 'MT2013' } = useParams();
+  const { courseId = '', tab = 'content' } = useParams();
   const navigate = useNavigate();
   const { language } = useLanguage();
-  const tab = (window.location.pathname.split('/').pop() || 'content') as DetailTab;
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ materials: true, ch0: true });
   const isVi = language === 'vi';
-  const courseName = useMemo(
-    () => courseId === 'CO2003'
-      ? 'Cấu trúc dữ liệu và giải thuật (CO2003)'
-      : `${courseId} - ${isVi ? 'Tên khóa học' : 'Course name'}`,
-    [courseId, isVi],
-  );
+  const { data: courseData, error: coursesError } = useAsync(() => api.getStudentCourses(), []);
+  const { data: sectionData, loading: sectionsLoading, error: sectionsError } =
+    useAsync<CourseSection[]>(() => api.getCourseSections(courseId), [courseId]);
+  const { data: gradeData, loading: gradesLoading, error: gradesError } =
+    useAsync(() => api.getStudentGrades(courseId), [courseId]);
+  const sections = sectionData ?? [];
+  const grades = gradeData ?? [];
+  const courseName = courseData?.find((course) => course.id === courseId)?.title ?? courseId;
 
   const tabs: { id: DetailTab | 'graph'; label: string }[] = [
     { id: 'graph', label: isVi ? 'Lộ trình kiến nghị' : 'Recommended path' },
@@ -88,12 +34,16 @@ export default function StudentCourseDetailPage() {
   const selectTab = (id: DetailTab | 'graph') => {
     navigate(id === 'graph' ? `/courses/${courseId}/graph` : `/courses/${courseId}/${id}`);
   };
+  const totalContribution = grades.reduce((sum, item) => (
+    item.score !== null && item.weight !== null ? sum + item.score / item.maxScore * item.weight : sum
+  ), 0);
 
   return (
     <div className="page course-detail-page">
       <AppHeader />
       <main className="container course-detail-content">
         <h1>{courseName}</h1>
+        {coursesError && <p className="form-error" role="alert">{coursesError.message}</p>}
         <div className="tabs-pill course-detail-tabs">
           {tabs.map((item) => (
             <button key={item.id} className={tab === item.id ? 'on' : ''} onClick={() => selectTab(item.id)}>
@@ -104,37 +54,67 @@ export default function StudentCourseDetailPage() {
 
         {tab === 'content' && (
           <div className="course-detail-sections">
+            <section className="course-activity-section" aria-labelledby="course-activity-heading">
+              <h2 id="course-activity-heading">{isVi ? 'Hoạt động môn học' : 'Course activities'}</h2>
+              <div className="course-activity-links">
+                <Link to={`/courses/${courseId}/assignments`}><ClipboardList size={17} />{isVi ? 'Bài tập' : 'Assignments'}<ChevronRight size={15} /></Link>
+                <Link to={`/courses/${courseId}/announcements`}><Bell size={17} />{isVi ? 'Thông báo' : 'Announcements'}<ChevronRight size={15} /></Link>
+                <Link to={`/courses/${courseId}/quizzes`}><FileText size={17} />{isVi ? 'Quiz và bài kiểm tra' : 'Quizzes and tests'}<ChevronRight size={15} /></Link>
+                <Link to={`/courses/${courseId}/attendance`}><CalendarCheck size={17} />{isVi ? 'Điểm danh' : 'Attendance'}<ChevronRight size={15} /></Link>
+              </div>
+            </section>
             <button className="course-collapse-all" onClick={() => setOpenSections({})}>
               {isVi ? 'Thu gọn toàn bộ' : 'Collapse all'}
             </button>
-            {SECTIONS.map((section) => {
+            {sectionsError && <p className="form-error" role="alert">{sectionsError.message}</p>}
+            {sectionsLoading && <p className="muted">{isVi ? 'Đang tải nội dung...' : 'Loading course content...'}</p>}
+            {sections.map((section) => {
               const open = openSections[section.id];
               return (
                 <div className="course-detail-section" key={section.id}>
-                  <button className="course-detail-section-head" onClick={() => setOpenSections((current) => ({ ...current, [section.id]: !current[section.id] }))}>
+                  <button
+                    className="course-detail-section-head"
+                    aria-expanded={!!open}
+                    onClick={() => setOpenSections((current) => ({ ...current, [section.id]: !current[section.id] }))}
+                  >
                     <span className="course-section-title">
                       {open ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                       {isVi ? section.titleVi : section.titleEn}
                     </span>
-                    {(isVi ? section.badgeVi : section.badgeEn) && (
-                      <span className="course-section-badge">{isVi ? section.badgeVi : section.badgeEn}</span>
-                    )}
                   </button>
                   {open && (
                     section.items.length ? (
                       <div className="course-resource-list">
                         {section.items.map((item) => (
-                          <a href="#download" key={item.id} className="course-resource">
-                            <FileText size={16} />
-                            <span>{isVi ? item.nameVi : item.nameEn}</span>
-                            <small>PDF</small>
-                          </a>
+                          item.kind === 'quiz' ? (
+                            <Link to={`/courses/${courseId}/quizzes/${item.id}`} key={item.id} className="course-resource">
+                              <FileText size={16} /><span>{isVi ? item.nameVi : item.nameEn}</span><small>{item.kind.toUpperCase()}</small>
+                            </Link>
+                          ) : item.url ? (
+                            <a href={item.url} key={item.id} className="course-resource" target="_blank" rel="noreferrer">
+                              <FileText size={16} /><span>{isVi ? item.nameVi : item.nameEn}</span><small>{item.kind.toUpperCase()}</small>
+                            </a>
+                          ) : (
+                            <div key={item.id} className="course-resource">
+                              <FileText size={16} /><span>{isVi ? item.nameVi : item.nameEn}</span><small>{item.kind.toUpperCase()}</small>
+                            </div>
+                          )
                         ))}
                       </div>
                     ) : (
-                      <p className="course-empty-section">
-                        {isVi ? 'Chưa có nội dung hoặc bài tập trong mục này.' : 'There is no content or assignment in this section yet.'}
-                      </p>
+                      <div className="course-empty-section">
+                        {section.id === 'assignments' ? (
+                          <button className="btn btn-outline" onClick={() => navigate(`/courses/${courseId}/assignments`)}>
+                            {isVi ? 'Xem bài tập và hạn nộp' : 'View assignments and deadlines'}
+                          </button>
+                        ) : section.id === 'announcements' ? (
+                          <button className="btn btn-outline" onClick={() => navigate(`/courses/${courseId}/announcements`)}>
+                            {isVi ? 'Xem thông báo môn học' : 'View course announcements'}
+                          </button>
+                        ) : (
+                          isVi ? 'Chưa có nội dung trong mục này.' : 'There is no content in this section yet.'
+                        )}
+                      </div>
                     )
                   )}
                 </div>
@@ -146,29 +126,42 @@ export default function StudentCourseDetailPage() {
         {tab === 'grades' && (
           <div className="course-grades-card">
             <div className="course-grades-heading"><ChevronDown size={15} /><strong>{courseName}</strong></div>
+            {gradesError && <p className="form-error" role="alert">{gradesError.message}</p>}
+            {gradesLoading && <p className="muted">{isVi ? 'Đang tải điểm...' : 'Loading grades...'}</p>}
             <div className="course-grades-table-wrap">
               <table className="course-grades-table">
                 <thead>
                   <tr>
                     <th>{isVi ? 'Mục điểm' : 'Grade item'}</th>
-                    <th>{isVi ? 'Khối' : 'Weight'}</th>
-                    <th>{isVi ? 'Điểm' : 'Grade'}</th>
-                    <th>{isVi ? 'Khoảng' : 'Range'}</th>
+                    <th>{isVi ? 'Trọng số' : 'Weight'}</th>
+                    <th>{isVi ? 'Điểm' : 'Score'}</th>
+                    <th>{isVi ? 'Thang điểm' : 'Scale'}</th>
                     <th>{isVi ? 'Phần trăm' : 'Percentage'}</th>
                     <th>{isVi ? 'Phản hồi' : 'Feedback'}</th>
-                    <th>{isVi ? 'Đóng góp vào tổng môn học' : 'Contribution to course total'}</th>
+                    <th>{isVi ? 'Đóng góp' : 'Contribution'}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {GRADES.map((row, index) => (
-                    <tr key={index}>
-                      <td><span className="grade-item-icon">{row.category === 'manual' ? <Edit3 size={14} /> : <Users size={14} />}</span><span><small>{isVi ? row.subVi : row.subEn}</small><strong>{isVi ? row.titleVi : row.titleEn}</strong></span></td>
-                      <td>{row.weight}</td><td>{row.score}</td><td>{row.range}</td><td>{row.percentage}</td><td>{row.feedback}</td><td>{row.contribution}</td>
-                    </tr>
-                  ))}
+                  {grades.map((item) => {
+                    const percent = item.score === null ? null : item.score / item.maxScore * 100;
+                    const contribution = percent !== null && item.weight !== null ? percent * item.weight : null;
+                    return (
+                      <tr key={item.id}>
+                        <td><span className="grade-item-icon">{item.category === 'manual' ? <Edit3 size={14} /> : <Users size={14} />}</span>
+                          <span><small>{item.category === 'manual' ? (isVi ? 'Mục thủ công' : 'Manual item') : (isVi ? 'Điểm danh' : 'Attendance')}</small>
+                            <strong>{isVi ? item.titleVi : item.titleEn}</strong></span></td>
+                        <td>{item.weight === null ? '—' : `${(item.weight * 100).toLocaleString(isVi ? 'vi-VN' : 'en-US')}%`}</td>
+                        <td>{item.score === null ? '—' : item.score.toLocaleString(isVi ? 'vi-VN' : 'en-US')}</td>
+                        <td>0–{item.maxScore}</td>
+                        <td>{percent === null ? '—' : `${percent.toLocaleString(isVi ? 'vi-VN' : 'en-US')}%`}</td>
+                        <td>{item.feedback ?? '—'}</td>
+                        <td>{contribution === null ? '—' : `${contribution.toLocaleString(isVi ? 'vi-VN' : 'en-US')}%`}</td>
+                      </tr>
+                    );
+                  })}
                   <tr className="course-grade-total">
-                    <td><Sigma size={15} /> {isVi ? 'Tổng khóa học' : 'Course total'}</td>
-                    <td>-</td><td>-</td><td>0-110</td><td>-</td><td>-</td><td>-</td>
+                    <td><Sigma size={15} /> {isVi ? 'Tổng đóng góp đã có điểm' : 'Graded contribution'}</td>
+                    <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>{totalContribution.toLocaleString(isVi ? 'vi-VN' : 'en-US')}%</td>
                   </tr>
                 </tbody>
               </table>
@@ -180,6 +173,9 @@ export default function StudentCourseDetailPage() {
           <div className="course-personalized-empty">
             <Users size={28} />
             <p>{isVi ? 'Lộ trình học tập cá nhân hóa của bạn sẽ được hiển thị tại đây.' : 'Your personalized learning path will be displayed here.'}</p>
+            <button className="btn btn-primary" onClick={() => navigate(`/courses/${courseId}/graph`)}>
+              {isVi ? 'Mở bản đồ kiến thức' : 'Open knowledge map'}
+            </button>
           </div>
         )}
       </main>

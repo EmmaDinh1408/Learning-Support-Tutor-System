@@ -9,29 +9,37 @@ import { useLanguage } from '../features/i18n/LanguageContext';
 
 export default function TeacherCoursesPage() {
   const { language, t } = useLanguage();
-  const { data } = useAsync(() => api.getTeacherCourses(), []);
+  const { data, error, loading } = useAsync(() => api.getTeacherCourses(), []);
   const [q, setQ] = useState('');
   const [courses, setCourses] = useState(data ?? []);
   const [createOpen, setCreateOpen] = useState(false);
   const [code, setCode] = useState('');
   const [title, setTitle] = useState('');
   const [faculty, setFaculty] = useState('Khoa Khoa học Máy tính');
+  const [actionError, setActionError] = useState('');
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => { if (data) setCourses(data); }, [data]);
 
   const createCourse = async () => {
     if (!code.trim() || !title.trim()) return;
-    const course = await api.createTeacherCourse({
-      id: code.trim().toUpperCase(),
-      code: code.trim().toUpperCase(),
-      title: `${title.trim()} (${code.trim().toUpperCase()})`,
-      faculty,
-      theme: 'orange',
-    });
-    setCourses((current) => [course, ...current]);
-    setCreateOpen(false);
-    setCode('');
-    setTitle('');
+    setCreating(true);
+    setActionError('');
+    try {
+      const course = await api.createTeacherCourse({
+        code: code.trim().toUpperCase(),
+        title: title.trim(),
+        faculty,
+      });
+      setCourses((current) => [course, ...current]);
+      setCreateOpen(false);
+      setCode('');
+      setTitle('');
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : 'Không thể tạo khóa học.');
+    } finally {
+      setCreating(false);
+    }
   };
 
   const list = courses.filter((c) => c.title.toLowerCase().includes(q.toLowerCase()));
@@ -42,6 +50,9 @@ export default function TeacherCoursesPage() {
       <main className="container">
         <h1 className="page-title">{t('courses')}</h1>
         <CourseToolbar teacher statusOptions={language === 'en' ? ['All (except hidden)', 'Published', 'Unpublished'] : ['Tất cả (trừ đã ẩn)', 'Đã xuất bản', 'Chưa xuất bản']} query={q} onQuery={setQ} onCreate={() => setCreateOpen(true)} />
+        {actionError && <p className="form-error" role="alert">{actionError}</p>}
+        {error && <p className="form-error" role="alert">{error.message}</p>}
+        {loading && <p className="muted">{language === 'vi' ? 'Đang tải khóa học...' : 'Loading courses...'}</p>}
         <div className="course-grid">
           {list.map((c) => (
             <CourseCardShell key={c.id} code={c.code} theme={c.theme} faculty={c.faculty} title={c.title} to={`/teacher/courses/${c.id}/graph`}
@@ -65,7 +76,7 @@ export default function TeacherCoursesPage() {
             <label>Khoa<select value={faculty} onChange={(e) => setFaculty(e.target.value)}><option>Khoa Khoa học Máy tính</option><option>Khoa Khoa học Ứng dụng</option></select></label>
             <div className="course-modal-actions">
               <button className="btn btn-outline" onClick={() => setCreateOpen(false)}>Hủy</button>
-              <button className="btn btn-primary" disabled={!code.trim() || !title.trim()} onClick={createCourse}>Tạo khóa học</button>
+              <button className="btn btn-primary" disabled={creating || !code.trim() || !title.trim()} onClick={createCourse}>Tạo khóa học</button>
             </div>
           </div>
         </div>

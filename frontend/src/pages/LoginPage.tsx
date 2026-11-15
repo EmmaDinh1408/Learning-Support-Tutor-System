@@ -3,6 +3,8 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../features/auth/AuthContext';
+import { useAsync } from '../features/common/useAsync';
+import { useLanguage } from '../features/i18n/LanguageContext';
 import type { Role } from '../types';
 
 const PLACEHOLDER: Record<Role, string> = {
@@ -17,16 +19,27 @@ export default function LoginPage() {
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const { setUser } = useAuth();
+  const { language } = useLanguage();
   const nav = useNavigate();
+  const { data, error: statsError } = useAsync(() => api.getLoginHeroStats(), []);
+  const stats = data ?? [];
+  const [error, setError] = useState('');
 
   const switchRole = (r: Role) => { setRole(r); setIdentity(''); };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    const user = await api.login(identity || PLACEHOLDER[role], password, role);
-    setUser(user);
-    nav('/home');
+    setError('');
+    try {
+      const user = await api.login(identity || PLACEHOLDER[role], password, role);
+      setUser(user);
+      nav('/home');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Không thể đăng nhập.');
+    } finally {
+      setBusy(false);
+    }
   };
 
   const label = role === 'student' ? 'Học viên' : 'Giảng viên';
@@ -39,10 +52,14 @@ export default function LoginPage() {
           <h2>Chào mừng đến G4LMS</h2>
           <p>Hệ thống học tập thích ứng dựa trên Knowledge Graph — cá nhân hoá lộ trình học cho từng học viên.</p>
           <div className="hero-stats">
-            <div><b>12,400+</b><span>Học viên</span></div>
-            <div><b>380</b><span>Khoá học</span></div>
-            <div><b>98%</b><span>Hoàn thành</span></div>
+            {stats.map((item) => (
+              <div key={item.labelVi}>
+                <b>{item.value}</b>
+                <span>{language === 'vi' ? item.labelVi : item.labelEn}</span>
+              </div>
+            ))}
           </div>
+          {statsError && <p className="form-error" role="alert">{statsError.message}</p>}
         </div>
       </section>
 
@@ -75,6 +92,7 @@ export default function LoginPage() {
           </label>
           <a className="forgot" href="#" onClick={(e) => e.preventDefault()}>Quên mật khẩu?</a>
 
+          {error && <p className="form-error" role="alert">{error}</p>}
           <button className="btn btn-primary btn-block" disabled={busy}>Đăng nhập với tư cách {label}</button>
           <p className="no-account">Chưa có tài khoản? <a href="#" onClick={(e) => e.preventDefault()}>Liên hệ quản trị viên</a></p>
 

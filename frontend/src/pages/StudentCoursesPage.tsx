@@ -9,7 +9,7 @@ import { useLanguage } from '../features/i18n/LanguageContext';
 
 export default function StudentCoursesPage() {
   const { language, t } = useLanguage();
-  const { data } = useAsync(() => api.getStudentCourses(), []);
+  const { data, error, loading } = useAsync(() => api.getStudentCourses(), []);
   const [q, setQ] = useState('');
   const list = (data ?? []).filter((c) => c.title.toLowerCase().includes(q.toLowerCase()));
 
@@ -19,6 +19,8 @@ export default function StudentCoursesPage() {
       <main className="container">
         <h1 className="page-title">{t('courses')}</h1>
         <CourseToolbar statusOptions={language === 'en' ? ['In progress', 'Ended', 'All'] : ['Đang diễn ra', 'Đã kết thúc', 'Tất cả']} query={q} onQuery={setQ} />
+        {error && <p className="form-error" role="alert">{error.message}</p>}
+        {loading && <p className="muted">{language === 'vi' ? 'Đang tải khóa học...' : 'Loading courses...'}</p>}
         <div className="course-grid">
           {list.map((c) => (
             <CourseCardShell key={c.id} code={c.code} theme={c.theme} faculty={c.faculty} title={c.title} to={`/courses/${c.id}/graph`}

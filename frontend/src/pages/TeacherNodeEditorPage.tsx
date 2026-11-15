@@ -4,22 +4,31 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { AppHeader } from '../features/layout/AppHeader';
 import { useAsync } from '../features/common/useAsync';
+import { contentStatusLabel } from '../features/teacher/statusLabels';
 
 type Tab = 'desc' | 'content' | 'quiz' | 'prereq';
 const BLOOM = ['Nhớ', 'Hiểu', 'Áp dụng', 'Phân tích', 'Đánh giá', 'Sáng tạo'];
 const DIFF = ['Dễ', 'Vừa', 'Khó'];
 
 export default function TeacherNodeEditorPage() {
-  const { courseId = 'CO2003', nodeId = 'insert' } = useParams();
+  const { courseId = '', nodeId = '' } = useParams();
   const nav = useNavigate();
-  const { data } = useAsync(() => api.getNodeEditor(nodeId), [nodeId]);
+  const { data, loading, error } = useAsync(() => api.getNodeEditor(nodeId), [nodeId]);
   const [tab, setTab] = useState<Tab>('desc');
   const [name, setName] = useState<string | null>(null);
   const [desc, setDesc] = useState<string | null>(null);
   const [qs, setQs] = useState<Record<string, { bloom?: string; difficulty?: string }>>({});
   const [removed, setRemoved] = useState<string[]>([]);
 
-  if (!data) return <div className="page"><AppHeader showEditToggle /></div>;
+  if (!data) return (
+    <div className="page">
+      <AppHeader showEditToggle />
+      <main className="container">
+        {error && <p className="form-error" role="alert">{error.message}</p>}
+        {loading && <p className="muted">Đang tải node...</p>}
+      </main>
+    </div>
+  );
   const back = () => nav(`/teacher/courses/${courseId}/graph`);
   const questions = data.questions.filter((q) => !removed.includes(q.id));
   const nameV = name ?? data.name;
@@ -74,11 +83,11 @@ export default function TeacherNodeEditorPage() {
             <div className="content-list">
               {data.contents.map((c) => (
                 <div key={c.id} className="content-item">
-                  <span className={`c-ico ${c.status === 'Đã duyệt' ? 'blue' : 'green'}`}><FileText size={14} /></span>
+                  <span className={`c-ico ${c.status === 'approved' ? 'blue' : 'green'}`}><FileText size={14} /></span>
                   <div className="c-main">
                     <div className="c-tags">
                       <span className="tag-kind">{c.kind}</span>
-                      <span className={`tag-status ${c.status === 'Đã duyệt' ? 'ok' : 'draft'}`}>{c.status}</span>
+                      <span className={`tag-status ${c.status === 'approved' ? 'ok' : 'draft'}`}>{contentStatusLabel(c.status)}</span>
                     </div>
                     <b>{c.title}</b>
                     <small>{c.source}</small>
@@ -112,7 +121,7 @@ export default function TeacherNodeEditorPage() {
                         {DIFF.map((b) => <option key={b}>{b}</option>)}
                       </select>
                     </td>
-                    <td><span className={`tag-status ${q.status === 'Đã duyệt' ? 'ok' : 'draft'}`}>{q.status}</span></td>
+                    <td><span className={`tag-status ${q.status === 'approved' ? 'ok' : 'draft'}`}>{contentStatusLabel(q.status)}</span></td>
                   </tr>
                 ))}
               </tbody>

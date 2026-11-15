@@ -14,6 +14,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { useLanguage } from '../i18n/LanguageContext';
+import { api } from '../../api/client';
+import { useAsync } from '../common/useAsync';
+import type { NotificationRecord } from '../../types';
 
 type OpenMenu = 'notifications' | 'messages' | 'user' | null;
 
@@ -47,8 +50,22 @@ export default function LMSHeaderActions() {
   const { language, setLanguage } = useLanguage();
   const nav = useNavigate();
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
-  const [unreadNotifications, setUnreadNotifications] = useState(true);
+  const [notificationItems, setNotificationItems] = useState<NotificationRecord[]>([]);
+  const [notificationError, setNotificationError] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const { data: notificationData, error: notificationsError } = useAsync(() => api.getNotifications(), []);
+  const { data: messageData, error: messagesError } = useAsync(() => api.getMessages(), []);
+  const { data: courses, error: coursesError } = useAsync(
+    async () => user?.role === 'teacher' ? await api.getTeacherCourses() : await api.getStudentCourses(),
+    [user?.role],
+  );
+  const notifications = notificationItems;
+  const messages = messageData ?? [];
+  const hasUnreadNotifications = notifications.some((item) => !item.read);
+
+  useEffect(() => {
+    if (notificationData) setNotificationItems(notificationData);
+  }, [notificationData]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -68,6 +85,32 @@ export default function LMSHeaderActions() {
     nav('/login');
   };
 
+  const markNotificationsRead = async () => {
+    setNotificationError('');
+    try {
+      await api.markNotificationsRead();
+      setNotificationItems((current) => current.map((item) => ({ ...item, read: true })));
+    } catch (reason) {
+      setNotificationError(reason instanceof Error ? reason.message : 'Không thể cập nhật thông báo.');
+    }
+  };
+
+  const openGrades = () => {
+    setOpenMenu(null);
+    if (user?.role !== 'teacher') {
+      nav('/grades');
+      return;
+    }
+    const firstCourse = courses?.[0];
+    if (!firstCourse) {
+      nav(user?.role === 'teacher' ? '/teacher/courses' : '/courses');
+      return;
+    }
+    nav(user?.role === 'teacher'
+      ? `/teacher/courses/${firstCourse.id}/grades`
+      : `/courses/${firstCourse.id}/grades`);
+  };
+
   return (
     <div ref={containerRef} className="header-actions">
       <div className="header-action-menu">
@@ -79,7 +122,7 @@ export default function LMSHeaderActions() {
           aria-expanded={openMenu === 'notifications'}
         >
           <Bell size={15} />
-          {unreadNotifications && <span className="badge-dot" />}
+          {hasUnreadNotifications && <span className="badge-dot" />}
         </button>
 
         {openMenu === 'notifications' && (
@@ -88,28 +131,18 @@ export default function LMSHeaderActions() {
               <span>{language === 'vi' ? 'Thông báo' : 'Notifications'}</span>
               <button
                 type="button"
-                onClick={() => setUnreadNotifications(false)}
+                onClick={markNotificationsRead}
                 className="header-mark-read"
               >
                 <Check size={12} /> {language === 'vi' ? 'Đánh dấu đã đọc' : 'Mark as read'}
               </button>
             </div>
             <div className="header-popover-list">
-              <NotificationItem
-                title="Hạn nộp: Khảo sát môn học HK261"
-                description="Vui lòng hoàn thành khảo sát môn Mô hình hóa Toán học trước 23:59 hôm nay."
-                time="2 giờ trước"
-              />
-              <NotificationItem
-                title="Thông báo cập nhật lịch thi giữa kỳ"
-                description="Phòng Đào tạo đã đăng tải lịch thi chính thức cho các lớp học phần."
-                time="Hôm qua"
-              />
-              <NotificationItem
-                title="Bài tập lớn: Đã cập nhật đề cương"
-                description="Giảng viên môn Quản lý Dự án đã tải lên tài liệu hướng dẫn nhóm."
-                time="3 ngày trước"
-              />
+              {notificationError && <p className="form-error" role="alert">{notificationError}</p>}
+              {notificationsError && <p className="form-error" role="alert">{notificationsError.message}</p>}
+              {notifications.map((item) => (
+                <NotificationItem key={item.id} title={item.title} description={item.description} time={item.time} />
+              ))}
             </div>
           </div>
         )}
@@ -124,37 +157,33 @@ export default function LMSHeaderActions() {
           aria-expanded={openMenu === 'messages'}
         >
           <MessageSquare size={15} />
-          <span className="badge-dot" />
+          {messages.some((message) => message.unread) && <span className="badge-dot" />}
         </button>
 
         {openMenu === 'messages' && (
           <div className="header-popover header-messages">
             <div className="header-popover-header">
               <span>{language === 'vi' ? 'Tin nhắn trao đổi' : 'Messages'}</span>
-              <span className="header-new-count">{language === 'vi' ? '2 mới' : '2 new'}</span>
+              <span className="header-new-count">{messages.filter((message) => message.unread).length} {language === 'vi' ? 'mới' : 'new'}</span>
             </div>
             <div className="header-message-list">
-              <button type="button" className="header-message-item">
-                <div className="header-message-avatar">GV</div>
-                <div>
-                  <div className="header-message-meta">
-                    <strong>Thầy Phạm An Vinh</strong>
-                    <span>10:45</span>
+              {messagesError && <p className="form-error" role="alert">{messagesError.message}</p>}
+              {messages.map((message, index) => (
+                <button type="button" className="header-message-item" key={message.id}>
+                  <div className={`header-message-avatar ${index % 2 ? 'green' : ''}`}>{message.initials}</div>
+                  <div>
+                    <div className="header-message-meta">
+                      <strong>{message.sender}</strong>
+                      <span>{message.time}</span>
+                    </div>
+                    <p>{message.preview}</p>
                   </div>
-                  <p>Nhóm em kiểm tra lại câu hỏi số 2 nhé...</p>
-                </div>
-              </button>
-              <button type="button" className="header-message-item">
-                <div className="header-message-avatar green">LT</div>
-                <div>
-                  <div className="header-message-meta">
-                    <strong>Lớp trưởng CO3029</strong>
-                    <span>Hôm qua</span>
-                  </div>
-                  <p>Link drive bài nộp chung ở đây nha các bạn.</p>
-                </div>
-              </button>
+                </button>
+              ))}
             </div>
+            <button type="button" className="header-popover-link" onClick={() => { setOpenMenu(null); nav('/messages'); }}>
+              {language === 'vi' ? 'Mở hộp thư' : 'Open inbox'}
+            </button>
           </div>
         )}
       </div>
@@ -178,9 +207,18 @@ export default function LMSHeaderActions() {
                 : (user?.role === 'teacher' ? 'Teacher account' : 'Student account')}</strong>
               <span>{user?.name}</span>
             </div>
-            <MenuLink icon={<User size={14} />}>{language === 'vi' ? 'Hồ sơ' : 'Profile'}</MenuLink>
-            <MenuLink icon={<GraduationCap size={14} />}>{language === 'vi' ? 'Điểm' : 'Grades'}</MenuLink>
-            <MenuLink icon={<Calendar size={14} />}>{language === 'vi' ? 'Thời khoá biểu (TKB)' : 'Timetable'}</MenuLink>
+            {coursesError && <p className="form-error" role="alert">{coursesError.message}</p>}
+            <MenuLink
+              icon={<User size={14} />}
+              onClick={() => {
+                setOpenMenu(null);
+                nav(user?.role === 'teacher' ? '/profile/teacher' : '/profile/student');
+              }}
+            >
+              {language === 'vi' ? 'Hồ sơ' : 'Profile'}
+            </MenuLink>
+            <MenuLink icon={<GraduationCap size={14} />} onClick={openGrades}>{language === 'vi' ? 'Điểm' : 'Grades'}</MenuLink>
+            <MenuLink icon={<Calendar size={14} />} onClick={() => { setOpenMenu(null); nav('/dashboard'); }}>{language === 'vi' ? 'Thời khoá biểu (TKB)' : 'Timetable'}</MenuLink>
             <div className="header-language-section">
               <div className="header-language-label"><Globe size={14} /> {language === 'vi' ? 'Ngôn ngữ' : 'Language'}</div>
               <div className="header-language-options">
