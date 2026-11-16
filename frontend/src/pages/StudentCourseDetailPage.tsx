@@ -5,7 +5,10 @@ import { api } from '../api/client';
 import { AppHeader } from '../features/layout/AppHeader';
 import { useAsync } from '../features/common/useAsync';
 import { useLanguage } from '../features/i18n/LanguageContext';
+import { LearningProfile } from '../features/learning-profile/LearningProfile';
+import { RecommendationList } from '../features/recommendations/RecommendationList';
 import type { CourseSection } from '../types';
+
 
 type DetailTab = 'personalized' | 'content' | 'grades';
 
@@ -170,14 +173,19 @@ export default function StudentCourseDetailPage() {
         )}
 
         {tab === 'personalized' && (
-          <div className="course-personalized-empty">
-            <Users size={28} />
-            <p>{isVi ? 'Lộ trình học tập cá nhân hóa của bạn sẽ được hiển thị tại đây.' : 'Your personalized learning path will be displayed here.'}</p>
-            <button className="btn btn-primary" onClick={() => navigate(`/courses/${courseId}/graph`)}>
-              {isVi ? 'Mở bản đồ kiến thức' : 'Open knowledge map'}
-            </button>
+          <div style={{ display: 'grid', gap: 16 }}>
+            <LearningProfile courseId={courseId} />
+            <RecommendationList courseId={courseId} />
+            <div className="course-personalized-empty">
+              <Users size={28} />
+              <p>{isVi ? 'Xem trực quan toàn bộ lộ trình kiến thức của bạn trên bản đồ đồ thị.' : 'Visualize your full personalized learning path on the knowledge map.'}</p>
+              <button className="btn btn-primary" onClick={() => navigate(`/courses/${courseId}/graph`)}>
+                {isVi ? 'Mở bản đồ kiến thức' : 'Open knowledge map'}
+              </button>
+            </div>
           </div>
         )}
+
       </main>
     </div>
   );

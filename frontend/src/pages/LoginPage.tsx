@@ -1,5 +1,5 @@
-import { BookOpen, Eye, EyeOff, GraduationCap, Users } from 'lucide-react';
-import { useState, type FormEvent } from 'react';
+import { BookOpen, Eye, EyeOff, GraduationCap, ShieldCheck, Users } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../features/auth/AuthContext';
@@ -10,6 +10,7 @@ import type { Role } from '../types';
 const PLACEHOLDER: Record<Role, string> = {
   student: 'sinhvien@hcmut.edu.vn',
   teacher: 'giangvien@hcmut.edu.vn',
+  admin: 'admin@hcmut.edu.vn',
 };
 
 export default function LoginPage() {
@@ -18,12 +19,16 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
-  const { setUser } = useAuth();
+  const { setUser, authError } = useAuth();
   const { language } = useLanguage();
   const nav = useNavigate();
   const { data, error: statsError } = useAsync(() => api.getLoginHeroStats(), []);
   const stats = data ?? [];
   const [error, setError] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
+  useEffect(() => {
+    if (authError) setError(authError);
+  }, [authError]);
 
   const switchRole = (r: Role) => { setRole(r); setIdentity(''); };
 
@@ -34,7 +39,7 @@ export default function LoginPage() {
     try {
       const user = await api.login(identity || PLACEHOLDER[role], password, role);
       setUser(user);
-      nav('/home');
+      nav(user.role === 'admin' ? '/admin' : '/home');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Không thể đăng nhập.');
     } finally {
@@ -42,7 +47,13 @@ export default function LoginPage() {
     }
   };
 
-  const label = role === 'student' ? 'Học viên' : 'Giảng viên';
+  const requestPasswordReset = async () => {
+    setError('');
+    setResetMessage('');
+    setResetMessage('Vui lòng liên hệ quản trị viên để được cấp mật khẩu tạm thời.');
+  };
+
+  const label = role === 'student' ? 'Học viên' : role === 'teacher' ? 'Giảng viên' : 'Quản trị viên';
 
   return (
     <div className="login-page">
@@ -68,12 +79,15 @@ export default function LoginPage() {
           <h1>Đăng nhập</h1>
           <p className="muted">Đăng nhập vào G4LMS – Hệ thống Microlearning AI</p>
 
-          <div className="role-tabs" role="tablist">
+          <div className="role-tabs three" role="tablist">
             <button type="button" role="tab" aria-selected={role === 'student'} className={role === 'student' ? 'on' : ''} onClick={() => switchRole('student')}>
               <BookOpen size={12} /> Học viên
             </button>
             <button type="button" role="tab" aria-selected={role === 'teacher'} className={role === 'teacher' ? 'on' : ''} onClick={() => switchRole('teacher')}>
               <Users size={12} /> Giảng viên
+            </button>
+            <button type="button" role="tab" aria-selected={role === 'admin'} className={role === 'admin' ? 'on' : ''} onClick={() => switchRole('admin')}>
+              <ShieldCheck size={12} /> Quản trị
             </button>
           </div>
 
@@ -90,17 +104,20 @@ export default function LoginPage() {
               </button>
             </div>
           </label>
-          <a className="forgot" href="#" onClick={(e) => e.preventDefault()}>Quên mật khẩu?</a>
+          <a className="forgot" href="#" onClick={(e) => { e.preventDefault(); void requestPasswordReset(); }}>Quên mật khẩu?</a>
 
           {error && <p className="form-error" role="alert">{error}</p>}
+          {resetMessage && <p className="admin-success" role="status">{resetMessage}</p>}
           <button className="btn btn-primary btn-block" disabled={busy}>Đăng nhập với tư cách {label}</button>
           <p className="no-account">Chưa có tài khoản? <a href="#" onClick={(e) => e.preventDefault()}>Liên hệ quản trị viên</a></p>
 
           <div className="login-note">
-            {role === 'student' ? <BookOpen size={12} /> : <Users size={12} />}
+            {role === 'student' ? <BookOpen size={12} /> : role === 'teacher' ? <Users size={12} /> : <ShieldCheck size={12} />}
             {role === 'student'
               ? 'Đăng nhập với tư cách Học viên để xem bản đồ kiến thức cá nhân.'
-              : 'Đăng nhập với tư cách Giảng viên để quản lý khóa học và graph.'}
+              : role === 'teacher'
+                ? 'Đăng nhập với tư cách Giảng viên để quản lý khóa học và graph.'
+                : 'Đăng nhập với tư cách Quản trị viên để quản lý tài khoản và ghi danh.'}
           </div>
         </form>
       </section>

@@ -1,12 +1,14 @@
 import type {
-  Announcement, Assignment, AttendanceSession, ClusterView, ConversationMessage, ConversationSummary,
-  CourseFile, CourseOverallGrade, CreateAnnouncementInput, CreateAssignmentInput, CreateAttendanceSessionInput,
+  AdminAnnouncementRecord, AdminCourseOption, AdminCourseRecord, AdminEnrollment, AdminStats, AdminStudentOption, AdminUser, Announcement, Assignment, AssignmentSubmissionRecord,
+  AttendanceSession, ClusterView, ConversationMessage, ConversationSummary,
+  CourseFile, CourseOverallGrade, CourseRecommendation, CreateAnnouncementInput, CreateAssignmentInput, CreateAttendanceSessionInput,
   CreateConversationInput, CreateQuizInput, CreateTeacherCourseInput, DashboardData, HeatSpot, HomeSlide,
   LearningOutcome, LoginHeroStat, MessageContact, MessagePreview, NodeDetail, NodeEditorData,
-  NotificationRecord, PdfFile, ProfileDetails, QueueSummary, Quiz, QuizAttempt, Role, StudentAttendanceData,
-  StudentCourse, StudentGradeItem, StudentGraph, SubmitAssignmentInput, SubmitQuizInput, TeacherCourse,
-  TeacherCourseTopic, TeacherGradeRow, TeacherGraphData, UpdateAttendanceSessionInput, User,
+  NotificationRecord, PdfFile, ProfileDetails, ProfileRecord, QueueSummary, Quiz, QuizAttempt, Role, StudentAttendanceData,
+  StudentCourse, StudentGradeItem, StudentGraph, StudentLearningProfile, SubmitAssignmentInput, SubmitQuizInput, TeacherCourse,
+  TeacherCourseTopic, TeacherGradeRow, TeacherGraphData, UpdateAnnouncementInput, UpdateAssignmentInput, UpdateAttendanceSessionInput, UpdateGradebookRowInput, UpdateTeacherCourseInput, User,
 } from '../types';
+
 import { mockApi } from '../../../mockdata/service';
 
 export const BASE_URL = import.meta.env.VITE_API_URL ?? '/api';
@@ -24,26 +26,46 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
-  const rawUser = localStorage.getItem('g4lms.user');
-  if (rawUser) {
-    const user = JSON.parse(rawUser) as User;
-    if (user.accessToken) headers.set('Authorization', `Bearer ${user.accessToken}`);
-  }
+  const user = getStoredUser();
+  if (user?.accessToken) headers.set('Authorization', `Bearer ${user.accessToken}`);
   const response = await fetch(`${BASE_URL}${path}`, { ...init, headers });
+  if (response.status === 401 && !path.endsWith('/auth/login')) {
+    localStorage.removeItem('g4lms.user');
+    window.dispatchEvent(new Event('g4lms:unauthorized'));
+  }
   if (response.status === 204) return undefined as T;
   const contentType = response.headers.get('content-type') ?? '';
   const payload: unknown = contentType.includes('application/json')
     ? await response.json()
     : await response.text();
   if (!response.ok) {
-    const error = payload && typeof payload === 'object' ? payload as { message?: string; code?: string } : null;
-    throw new ApiError(error?.message ?? `Yêu cầu thất bại (${response.status}).`, response.status, error?.code);
+    const error = payload && typeof payload === 'object'
+      ? payload as { message?: string; detail?: string | { msg?: string }[]; code?: string }
+      : null;
+    const detail = Array.isArray(error?.detail)
+      ? error.detail.map((item) => item.msg).filter(Boolean).join(' ')
+      : error?.detail;
+    throw new ApiError(
+      error?.message ?? detail ?? `Yêu cầu thất bại (${response.status}).`,
+      response.status,
+      error?.code,
+    );
   }
   return payload as T;
 }
 
 function invoke<T>(mock: () => Promise<T>, path: string, init?: RequestInit): Promise<T> {
   return USE_MOCK_API ? mock() : request<T>(path, init);
+}
+
+function getStoredUser(): User | null {
+  const rawUser = localStorage.getItem('g4lms.user');
+  if (!rawUser) return null;
+  try {
+    return JSON.parse(rawUser) as User;
+  } catch {
+    return null;
+  }
 }
 
 const json = (method: string, body: unknown): RequestInit => ({
@@ -56,10 +78,12 @@ export const api = {
     if (USE_MOCK_API) return mockApi.login(identity, password, role);
     const response = await request<{ user: Omit<User, 'accessToken'>; accessToken: string }>(
       '/auth/login',
-      json('POST', { identity, password }),
+      json('POST', { identity, password, role }),
     );
     return { ...response.user, accessToken: response.accessToken };
   },
+  logout: (): Promise<void> =>
+    USE_MOCK_API ? Promise.resolve() : request('/auth/logout', { method: 'POST' }),
   getDashboard: (): Promise<DashboardData> =>
     invoke(mockApi.getDashboard, '/dashboard'),
   getHomeSlides: (): Promise<HomeSlide[]> =>
@@ -68,6 +92,125 @@ export const api = {
     invoke(mockApi.getLoginHeroStats, '/home/login-stats'),
   getProfileDetails: (role: Role): Promise<ProfileDetails> =>
     invoke(() => mockApi.getProfileDetails(role), '/me/profile'),
+  getMyProfile: async (): Promise<ProfileRecord> => {
+    if (!USE_MOCK_API) return request('/me/profile');
+    const user = getStoredUser();
+    if (!user) throw new ApiError('Vui lòng đăng nhập lại.', 401);
+    const details = user.role === 'student' || user.role === 'teacher'
+      ? await mockApi.getProfileDetails(user.role)
+      : null;
+    return {
+      id: details?.id ?? user.id,
+      email: user.email,
+      fullName: user.name,
+      role: user.role,
+      dateOfBirth: null,
+      studentCode: user.role === 'student' ? details?.id : null,
+      staffCode: user.role === 'teacher' ? details?.id : null,
+      faculty: null,
+      classYear: user.role === 'student' ? details?.extra : null,
+      title: user.role === 'teacher' ? details?.extra : null,
+    };
+  },
+  updateMyProfile: async (input: { fullName: string; dateOfBirth: string | null }): Promise<ProfileRecord> => {
+    if (!USE_MOCK_API) return request('/me/profile', json('PATCH', input));
+    const user = getStoredUser();
+    if (!user) throw new ApiError('Vui lòng đăng nhập lại.', 401);
+    const updatedUser = { ...user, name: input.fullName.trim() };
+    localStorage.setItem('g4lms.user', JSON.stringify(updatedUser));
+    return {
+      id: user.id,
+      email: user.email,
+      fullName: updatedUser.name,
+      role: user.role,
+      dateOfBirth: input.dateOfBirth,
+    };
+  },
+  changePassword: async (input: { currentPassword: string; newPassword: string }): Promise<{ user: User; accessToken: string }> => {
+    if (!USE_MOCK_API) return request('/auth/change-password', json('POST', input));
+    const user = getStoredUser();
+    if (!user) throw new ApiError('Vui lòng đăng nhập lại.', 401);
+    return {
+      user: { ...user, passwordResetRequired: false },
+      accessToken: user.accessToken ?? 'demo-access-token',
+    };
+  },
+  getAdminUsers: (): Promise<AdminUser[]> =>
+    USE_MOCK_API ? mockApi.getAdminUsers() : request('/admin/users'),
+  createAdminUser: (input: {
+    email: string;
+    fullName: string;
+    role: Role;
+    initialPassword: string;
+  }): Promise<AdminUser> =>
+    USE_MOCK_API ? mockApi.createAdminUser(input) : request('/admin/users', json('POST', input)),
+  resetAdminUserPassword: (userId: string, temporaryPassword: string): Promise<void> =>
+    USE_MOCK_API
+      ? mockApi.resetAdminUserPassword(userId)
+      : request(`/admin/users/${encodeURIComponent(userId)}/reset-password`, json('POST', { temporaryPassword })),
+  deleteAdminUser: (userId: string): Promise<void> =>
+    USE_MOCK_API
+      ? mockApi.deleteAdminUser(userId)
+      : request(`/admin/users/${encodeURIComponent(userId)}`, { method: 'DELETE' }),
+  getAdminEnrollments: (): Promise<{
+    students: AdminStudentOption[];
+    courses: AdminCourseOption[];
+    enrollments: AdminEnrollment[];
+  }> =>
+    USE_MOCK_API ? mockApi.getAdminEnrollments() : request('/admin/enrollments'),
+  createAdminEnrollment: (input: { studentId: string; courseId: string }): Promise<AdminEnrollment> =>
+    USE_MOCK_API ? mockApi.createAdminEnrollment(input) : request('/admin/enrollments', json('POST', input)),
+  deleteAdminEnrollment: (enrollmentId: string): Promise<void> =>
+    USE_MOCK_API
+      ? mockApi.deleteAdminEnrollment(enrollmentId)
+      : request(`/admin/enrollments/${encodeURIComponent(enrollmentId)}`, { method: 'DELETE' }),
+  getAdminStats: (): Promise<AdminStats> =>
+    USE_MOCK_API ? mockApi.getAdminStats() : request('/admin/stats'),
+  getAdminCourses: (): Promise<AdminCourseRecord[]> =>
+    USE_MOCK_API ? mockApi.getAdminCourses() : request('/admin/courses'),
+  createAdminCourse: (input: {
+    code: string;
+    title: string;
+    description?: string;
+    faculty: string;
+    semester?: string;
+    year?: number;
+    theme?: TeacherCourse['theme'];
+    published?: boolean;
+    lecturerId?: string | null;
+  }): Promise<AdminCourseRecord> =>
+    USE_MOCK_API ? mockApi.createAdminCourse(input) : request('/admin/courses', json('POST', input)),
+  updateAdminCourse: (courseId: string, input: UpdateTeacherCourseInput): Promise<AdminCourseRecord> =>
+    USE_MOCK_API
+      ? mockApi.updateAdminCourse(courseId, input)
+      : request(`/admin/courses/${encodeURIComponent(courseId)}`, json('PATCH', input)),
+  deleteAdminCourse: (courseId: string): Promise<void> =>
+    USE_MOCK_API
+      ? mockApi.deleteAdminCourse(courseId)
+      : request(`/admin/courses/${encodeURIComponent(courseId)}`, { method: 'DELETE' }),
+  getAdminAnnouncements: (): Promise<AdminAnnouncementRecord[]> =>
+    USE_MOCK_API ? mockApi.getAdminAnnouncements() : request('/admin/announcements'),
+  createAdminAnnouncement: (input: {
+    title: string;
+    body: string;
+    courseId?: string | null;
+    isGlobal?: boolean;
+    status?: 'draft' | 'published';
+  }): Promise<AdminAnnouncementRecord> =>
+    USE_MOCK_API ? mockApi.createAdminAnnouncement(input) : request('/admin/announcements', json('POST', input)),
+  updateAdminAnnouncement: (
+    announcementId: string,
+    input: { title?: string; body?: string; status?: 'draft' | 'published'; isGlobal?: boolean },
+  ): Promise<AdminAnnouncementRecord> =>
+    USE_MOCK_API
+      ? mockApi.updateAdminAnnouncement(announcementId, input)
+      : request(`/admin/announcements/${encodeURIComponent(announcementId)}`, json('PATCH', input)),
+  deleteAdminAnnouncement: (announcementId: string): Promise<void> =>
+    USE_MOCK_API
+      ? mockApi.deleteAdminAnnouncement(announcementId)
+      : request(`/admin/announcements/${encodeURIComponent(announcementId)}`, { method: 'DELETE' }),
+  getHomeAnnouncements: (): Promise<AdminAnnouncementRecord[]> =>
+    invoke(mockApi.getHomeAnnouncements, '/home/announcements'),
   getNotifications: (): Promise<NotificationRecord[]> =>
     invoke(mockApi.getNotifications, '/notifications'),
   markNotificationsRead: (): Promise<void> =>
@@ -103,6 +246,18 @@ export const api = {
     invoke(mockApi.getTeacherCourses, '/teacher/courses'),
   createTeacherCourse: (input: CreateTeacherCourseInput): Promise<TeacherCourse> =>
     invoke(() => mockApi.createTeacherCourse(input), '/teacher/courses', json('POST', input)),
+  updateTeacherCourse: (courseId: string, input: UpdateTeacherCourseInput): Promise<TeacherCourse> =>
+    invoke(
+      () => mockApi.updateTeacherCourse(courseId, input),
+      `/teacher/courses/${encodeURIComponent(courseId)}`,
+      json('PATCH', input),
+    ),
+  deleteTeacherCourse: (courseId: string): Promise<void> =>
+    invoke(
+      () => mockApi.deleteTeacherCourse(courseId),
+      `/teacher/courses/${encodeURIComponent(courseId)}`,
+      { method: 'DELETE' },
+    ),
   getCourseSections: (courseId: string) =>
     invoke(() => mockApi.getCourseSections(courseId), `/courses/${encodeURIComponent(courseId)}/sections`),
   getStudentGrades: (courseId: string): Promise<StudentGradeItem[]> =>
@@ -135,10 +290,26 @@ export const api = {
       `/teacher/courses/${encodeURIComponent(courseId)}/attendance/sessions/${encodeURIComponent(sessionId)}`,
       json('PATCH', input),
     ),
+  deleteAttendanceSession: (courseId: string, sessionId: string): Promise<void> =>
+    invoke(
+      () => mockApi.deleteAttendanceSession(courseId, sessionId),
+      `/teacher/courses/${encodeURIComponent(courseId)}/attendance/sessions/${encodeURIComponent(sessionId)}`,
+      { method: 'DELETE' },
+    ),
   getTeacherRoster: (courseId: string) =>
     invoke(() => mockApi.getTeacherRoster(courseId), `/teacher/courses/${encodeURIComponent(courseId)}/students`),
   getTeacherGradebook: (courseId: string): Promise<TeacherGradeRow[]> =>
     invoke(() => mockApi.getTeacherGradebook(courseId), `/teacher/courses/${encodeURIComponent(courseId)}/gradebook`),
+  updateTeacherGradebookRow: (
+    courseId: string,
+    studentId: string,
+    input: UpdateGradebookRowInput,
+  ): Promise<TeacherGradeRow> =>
+    invoke(
+      () => mockApi.updateTeacherGradebookRow(courseId, studentId, input),
+      `/teacher/courses/${encodeURIComponent(courseId)}/gradebook/${encodeURIComponent(studentId)}`,
+      json('PATCH', input),
+    ),
   getTeacherCourseTopics: (courseId: string): Promise<TeacherCourseTopic[]> =>
     invoke(() => mockApi.getTeacherCourseTopics(courseId), `/teacher/courses/${encodeURIComponent(courseId)}/topics`),
   getAssignments: (courseId: string, role: Role): Promise<Assignment[]> =>
@@ -163,6 +334,18 @@ export const api = {
       `/teacher/courses/${encodeURIComponent(courseId)}/announcements/${encodeURIComponent(announcementId)}`,
       json('PATCH', { status }),
     ),
+  updateAnnouncement: (courseId: string, announcementId: string, input: UpdateAnnouncementInput): Promise<Announcement> =>
+    invoke(
+      () => mockApi.updateAnnouncement(courseId, announcementId, input),
+      `/teacher/courses/${encodeURIComponent(courseId)}/announcements/${encodeURIComponent(announcementId)}`,
+      json('PATCH', input),
+    ),
+  deleteAnnouncement: (courseId: string, announcementId: string): Promise<void> =>
+    invoke(
+      () => mockApi.deleteAnnouncement(courseId, announcementId),
+      `/teacher/courses/${encodeURIComponent(courseId)}/announcements/${encodeURIComponent(announcementId)}`,
+      { method: 'DELETE' },
+    ),
   createAssignment: (courseId: string, input: CreateAssignmentInput): Promise<Assignment> =>
     invoke(() => mockApi.createAssignment(courseId, input), `/teacher/courses/${encodeURIComponent(courseId)}/assignments`, json('POST', input)),
   updateAssignmentStatus: (courseId: string, assignmentId: string, status: Assignment['status']): Promise<Assignment> =>
@@ -171,12 +354,47 @@ export const api = {
       `/teacher/courses/${encodeURIComponent(courseId)}/assignments/${encodeURIComponent(assignmentId)}`,
       json('PATCH', { status }),
     ),
+  updateAssignment: (courseId: string, assignmentId: string, input: UpdateAssignmentInput): Promise<Assignment> =>
+    invoke(
+      () => mockApi.updateAssignment(courseId, assignmentId, input),
+      `/teacher/courses/${encodeURIComponent(courseId)}/assignments/${encodeURIComponent(assignmentId)}`,
+      json('PATCH', input),
+    ),
+  deleteAssignment: (courseId: string, assignmentId: string): Promise<void> =>
+    invoke(
+      () => mockApi.deleteAssignment(courseId, assignmentId),
+      `/teacher/courses/${encodeURIComponent(courseId)}/assignments/${encodeURIComponent(assignmentId)}`,
+      { method: 'DELETE' },
+    ),
   submitAssignment: (courseId: string, assignmentId: string, input: SubmitAssignmentInput): Promise<Assignment> =>
     invoke(
       () => mockApi.submitAssignment(courseId, assignmentId, input),
       `/student/courses/${encodeURIComponent(courseId)}/assignments/${encodeURIComponent(assignmentId)}/submissions`,
       json('POST', input),
     ),
+  getAssignmentSubmissions: (courseId: string, assignmentId: string): Promise<AssignmentSubmissionRecord[]> =>
+    invoke(
+      () => mockApi.getAssignmentSubmissions(courseId, assignmentId),
+      `/teacher/courses/${encodeURIComponent(courseId)}/assignments/${encodeURIComponent(assignmentId)}/submissions`,
+    ),
+  gradeSubmission: (
+    courseId: string,
+    assignmentId: string,
+    submissionId: string,
+    input: { score: number; feedback?: string | null },
+  ): Promise<AssignmentSubmissionRecord> =>
+    invoke(
+      () => mockApi.gradeSubmission(courseId, assignmentId, submissionId, input),
+      `/teacher/courses/${encodeURIComponent(courseId)}/assignments/${encodeURIComponent(assignmentId)}/submissions/${encodeURIComponent(submissionId)}`,
+      json('PATCH', input),
+    ),
+  getStudentLearningProfile: (courseId?: string): Promise<StudentLearningProfile> => {
+    const query = courseId ? `?course_id=${encodeURIComponent(courseId)}` : '';
+    return invoke(() => mockApi.getStudentLearningProfile(courseId), `/student/learning-profile${query}`);
+  },
+  getCourseRecommendations: (courseId: string): Promise<CourseRecommendation[]> =>
+    invoke(() => mockApi.getCourseRecommendations(courseId), `/student/courses/${encodeURIComponent(courseId)}/recommendations`),
+
   getQuiz: (courseId: string, quizId: string): Promise<Quiz> =>
     invoke(
       () => mockApi.getQuiz(courseId, quizId),

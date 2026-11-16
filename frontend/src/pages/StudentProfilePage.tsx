@@ -3,6 +3,7 @@ import { useAuth } from '../features/auth/AuthContext';
 import { useLanguage } from '../features/i18n/LanguageContext';
 import { api } from '../api/client';
 import { useAsync } from '../features/common/useAsync';
+import ProfileSettings from '../features/profile/ProfileSettings';
 
 export default function StudentProfilePage() {
   const { user } = useAuth();
@@ -41,6 +42,7 @@ export default function StudentProfilePage() {
             <div><dt>{language === 'vi' ? 'Khóa học' : 'Class year'}</dt><dd>{details?.extra ?? '—'}</dd></div>
           </dl>
         </section>
+        <ProfileSettings />
       </main>
     </div>
   );

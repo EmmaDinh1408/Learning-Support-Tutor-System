@@ -27,6 +27,15 @@ export default defineConfig(({ mode }) => {
   }
   return {
     plugins,
-    server: { port: 5173, fs: { allow: ['..'] } },
+    server: {
+      port: 5173,
+      fs: { allow: ['..'] },
+      proxy: {
+        '/api': {
+          target: env.VITE_BACKEND_URL ?? 'http://localhost:8000',
+          changeOrigin: true,
+        },
+      },
+    },
   };
 });

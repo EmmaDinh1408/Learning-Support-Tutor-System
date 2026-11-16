@@ -1,4 +1,4 @@
-export type Role = 'student' | 'teacher';
+export type Role = 'student' | 'teacher' | 'admin';
 
 export interface User {
   id: string;
@@ -7,6 +7,96 @@ export interface User {
   email: string;
   role: Role;
   accessToken?: string;
+  passwordResetRequired?: boolean;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  createdAt: string;
+  active: boolean;
+}
+
+export interface AdminStudentOption {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export interface AdminCourseOption {
+  id: string;
+  code: string;
+  title: string;
+  semester: string;
+  year: number;
+}
+
+export interface AdminEnrollment {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  courseId: string;
+  courseCode: string;
+  courseTitle: string;
+  enrolledAt: string;
+  progress: number;
+}
+
+export interface AdminStats {
+  students: number;
+  teachers: number;
+  admins: number;
+  courses: number;
+  enrollments: number;
+  assignments: number;
+  announcements: number;
+  teachersList: { id: string; name: string; email: string }[];
+}
+
+export interface AdminCourseRecord {
+  id: string;
+  code: string;
+  title: string;
+  description: string;
+  faculty: string;
+  semester: string;
+  year: number;
+  theme: CourseTheme;
+  published: boolean;
+  lecturerId?: string | null;
+  lecturerName?: string;
+  students: number;
+  createdAt?: string;
+}
+
+export interface AdminAnnouncementRecord {
+  id: string;
+  courseId: string | null;
+  courseName: string;
+  title: string;
+  body: string;
+  status: 'draft' | 'published';
+  isGlobal: boolean;
+  authorName: string;
+  createdAt: string;
+  publishedAt?: string | null;
+}
+
+
+export interface ProfileRecord {
+  id: string;
+  email: string;
+  fullName: string;
+  role: Role;
+  dateOfBirth: string | null;
+  studentCode?: string | null;
+  staffCode?: string | null;
+  faculty?: string | null;
+  classYear?: string | null;
+  title?: string | null;
 }
 
 export interface DashboardActivity {
@@ -74,6 +164,8 @@ export interface CourseOverallGrade {
 export interface RosterStudent {
   id: string;
   name: string;
+  email?: string;
+  enrolledAt?: string;
   status: 'active' | 'withdrawn';
   progress: number;
 }
@@ -84,6 +176,13 @@ export interface TeacherGradeRow extends RosterStudent {
   final: number | null;
   attendance: number | null;
   totalScore: number | null;
+}
+
+export interface UpdateGradebookRowInput {
+  midterm: number | null;
+  project: number | null;
+  final: number | null;
+  attendance: number | null;
 }
 
 export type AssignmentStatus = 'draft' | 'published' | 'closed';
@@ -102,7 +201,21 @@ export interface Assignment {
   score?: number | null;
   feedback?: string | null;
   submissionText?: string;
+  submissionCount?: number;
+  gradedCount?: number;
 }
+
+export interface AssignmentSubmissionRecord {
+  id: string;
+  studentId: string;
+  studentName: string;
+  text: string;
+  submittedAt: string;
+  status: SubmissionStatus;
+  score: number | null;
+  feedback: string | null;
+}
+
 
 export type AttendanceStatus = 'unmarked' | 'present' | 'absent' | 'late' | 'excused';
 export type AttendanceSessionStatus = 'draft' | 'published';
@@ -156,6 +269,9 @@ export interface Announcement {
   title: string;
   body: string;
   status: 'draft' | 'published';
+  isGlobal?: boolean;
+  authorName?: string;
+  courseName?: string;
   createdAt: string;
   publishedAt?: string;
 }
@@ -165,6 +281,12 @@ export interface CreateAnnouncementInput {
   body: string;
 }
 
+export interface UpdateAnnouncementInput {
+  title?: string;
+  body?: string;
+  status?: 'draft' | 'published';
+}
+
 export interface CreateAssignmentInput {
   title: string;
   description: string;
@@ -172,9 +294,18 @@ export interface CreateAssignmentInput {
   maxScore: number;
 }
 
+export interface UpdateAssignmentInput {
+  title?: string;
+  description?: string;
+  dueAt?: string;
+  maxScore?: number;
+  status?: AssignmentStatus;
+}
+
 export interface SubmitAssignmentInput {
   text: string;
 }
+
 
 export interface QuizOption {
   id: string;
@@ -335,7 +466,10 @@ export interface StudentCourse {
   id: string;
   code: string;
   title: string;
+  description?: string;
   faculty: string;
+  semester?: string;
+  year?: number;
   lecturer: string;
   progress: number;
   gap: string;
@@ -347,7 +481,10 @@ export interface TeacherCourse {
   id: string;
   code: string;
   title: string;
+  description?: string;
   faculty: string;
+  semester?: string;
+  year?: number;
   students: number;
   pending?: number;
   published: boolean;
@@ -359,8 +496,63 @@ export interface TeacherCourse {
 export interface CreateTeacherCourseInput {
   code: string;
   title: string;
+  description?: string;
   faculty: string;
+  semester?: string;
+  year?: number;
+  theme?: CourseTheme;
 }
+
+export interface UpdateTeacherCourseInput {
+  code?: string;
+  title?: string;
+  description?: string;
+  faculty?: string;
+  semester?: string;
+  year?: number;
+  theme?: CourseTheme;
+  published?: boolean;
+  lecturerId?: string | null;
+}
+
+export interface StudentLearningProfile {
+  studentId: string;
+  overallProgress: number;
+  courses: {
+    courseId: string;
+    courseCode: string;
+    courseTitle: string;
+    progress: number;
+    gap: string;
+    totalNodes: number;
+    masteredNodes: number;
+    inProgressNodes: number;
+    averageMastery: number;
+  }[];
+  knowledgeGaps: {
+    id: string;
+    title: string;
+    courseId: string;
+    courseCode: string;
+    cluster: string;
+    mastery: number;
+    lo: string;
+  }[];
+}
+
+export interface CourseRecommendation {
+  nodeId: string;
+  title: string;
+  subtitle?: string;
+  clusterName?: string;
+  learningOutcomeId?: string;
+  currentMastery: number;
+  aiHint?: string;
+  score: number;
+  reason: string;
+  prerequisites?: { id: string; title: string; mastery: number; ready: boolean }[];
+}
+
 
 export interface LearningOutcome {
   id: string; // LO1

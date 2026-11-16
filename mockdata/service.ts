@@ -1,11 +1,11 @@
 import type {
-  Announcement, Assignment, AttendanceSession, ClusterView, ConversationMessage, ConversationSummary,
-  CourseFile, CourseOverallGrade, CreateAnnouncementInput, CreateAssignmentInput, CreateAttendanceSessionInput,
+  AdminAnnouncementRecord, AdminCourseOption, AdminCourseRecord, AdminEnrollment, AdminStats, AdminStudentOption, AdminUser, Announcement, Assignment, AssignmentSubmissionRecord, AttendanceSession, ClusterView, ConversationMessage, ConversationSummary,
+  CourseFile, CourseOverallGrade, CourseRecommendation, CreateAnnouncementInput, CreateAssignmentInput, CreateAttendanceSessionInput,
   CreateConversationInput, CreateQuizInput, CreateTeacherCourseInput, DashboardData, HeatSpot, HomeSlide,
   LearningOutcome, LoginHeroStat, MessageContact, MessagePreview, NodeDetail, NodeEditorData,
   NotificationRecord, PdfFile, ProfileDetails, QueueSummary, Quiz, QuizAttempt, Role, StudentAttendanceData,
-  StudentCourse, StudentGradeItem, StudentGraph, SubmitAssignmentInput, SubmitQuizInput, TeacherCourse,
-  TeacherCourseTopic, TeacherGradeRow, TeacherGraphData, UpdateAttendanceSessionInput, User,
+  StudentCourse, StudentGradeItem, StudentGraph, StudentLearningProfile, SubmitAssignmentInput, SubmitQuizInput, TeacherCourse,
+  TeacherCourseTopic, TeacherGradeRow, TeacherGraphData, UpdateAnnouncementInput, UpdateAssignmentInput, UpdateAttendanceSessionInput, UpdateGradebookRowInput, UpdateTeacherCourseInput, User,
 } from '../frontend/src/types';
 import * as data from './fixtures';
 import { quizFixtures } from './quizFixtures';
@@ -20,6 +20,89 @@ const wait = <T,>(value: T, ms = 100): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
 const attempts = new Map<string, QuizAttempt>();
 const uploadedFiles: CourseFile[] = [];
+const adminUsers: AdminUser[] = [
+  { id: 'usr-admin-demo', email: 'admin@hcmut.edu.vn', name: 'Quản trị G4LMS', role: 'admin', createdAt: '2026-01-01T00:00:00Z', active: true },
+  { id: 'usr-student-demo', email: 'sinhvien@hcmut.edu.vn', name: 'Nguyễn Anh', role: 'student', createdAt: '2026-01-02T00:00:00Z', active: true },
+  { id: 'usr-teacher-demo', email: 'giangvien@hcmut.edu.vn', name: 'Nguyễn Văn Hùng', role: 'teacher', createdAt: '2026-01-03T00:00:00Z', active: true },
+];
+const adminEnrollments: AdminEnrollment[] = [
+  {
+    id: 'enr-demo-1',
+    studentId: 'usr-student-demo',
+    studentName: 'Nguyễn Anh',
+    studentEmail: 'sinhvien@hcmut.edu.vn',
+    courseId: 'CO3093',
+    courseCode: 'CO3093',
+    courseTitle: 'Mạng máy tính',
+    enrolledAt: '2026-09-01T08:00:00Z',
+    progress: 62,
+  },
+];
+const adminAnnouncements: AdminAnnouncementRecord[] = [
+  {
+    id: 'ann_global_1',
+    courseId: null,
+    courseName: 'Toàn trường',
+    title: 'Tuyển sinh sau đại học 2026',
+    body: 'Phòng Đào tạo Sau đại học thông báo kế hoạch tuyển sinh đợt 1 năm 2026 cho các ngành Kỹ thuật Máy tính và Khoa học Máy tính.',
+    status: 'published',
+    isGlobal: true,
+    authorName: 'Phòng Đào tạo',
+    createdAt: '2026-11-10T08:00:00Z',
+    publishedAt: '2026-11-10T08:00:00Z',
+  },
+  {
+    id: 'ann_global_2',
+    courseId: null,
+    courseName: 'Toàn trường',
+    title: 'Lịch thi cuối kỳ học kỳ 1 đã được công bố',
+    body: 'Sinh viên kiểm tra lịch thi cuối kỳ chính thức và phòng thi trên cổng thông tin đào tạo.',
+    status: 'published',
+    isGlobal: true,
+    authorName: 'Phòng Khảo thí & ĐBCL',
+    createdAt: '2026-11-08T09:30:00Z',
+    publishedAt: '2026-11-08T09:30:00Z',
+  },
+  {
+    id: 'ann_global_3',
+    courseId: null,
+    courseName: 'Toàn trường',
+    title: 'Hội thảo Công nghệ Phần mềm & AI trong Giáo dục',
+    body: 'Khoa KH&KT Máy tính tổ chức hội thảo chuyên đề về ứng dụng Knowledge Graph và Microlearning trong đào tạo đại học.',
+    status: 'published',
+    isGlobal: true,
+    authorName: 'Khoa KH&KT Máy tính',
+    createdAt: '2026-11-05T14:00:00Z',
+    publishedAt: '2026-11-05T14:00:00Z',
+  },
+];
+const assignmentSubmissions: Record<string, AssignmentSubmissionRecord[]> = {
+  'asg-1': [
+    {
+      id: 'sub-demo-1',
+      studentId: '2252001',
+      studentName: 'Nguyễn Anh',
+      text: 'Báo cáo phân tích phiên bắt tay TCP 3 bước và cửa sổ tắc nghẽn cwnd trên Wireshark.',
+      submittedAt: '2026-11-14T15:20:00+07:00',
+      status: 'submitted',
+      score: null,
+      feedback: null,
+    },
+  ],
+  'asg-2': [
+    {
+      id: 'sub-demo-2',
+      studentId: '2252001',
+      studentName: 'Nguyễn Anh',
+      text: 'Đã nộp báo cáo phân tích HTTP/2, DNS caching và độ trễ truy vấn.',
+      submittedAt: '2026-11-09T20:10:00+07:00',
+      status: 'graded',
+      score: 8.5,
+      feedback: 'Phân tích tốt, cần bổ sung nguồn tham khảo.',
+    },
+  ],
+};
+
 
 function toMessagePreview(conversation: ConversationSummary): MessagePreview {
   return {
@@ -36,17 +119,276 @@ function toMessagePreview(conversation: ConversationSummary): MessagePreview {
 export const mockApi = {
   login(identity: string, _password: string, role: Role): Promise<User> {
     const teacher = role === 'teacher';
-    const email = identity || (teacher ? 'giangvien@hcmut.edu.vn' : 'sinhvien@hcmut.edu.vn');
-    const name = teacher ? 'Nguyễn Văn Hùng' : 'Nguyễn Anh';
-    return wait({ id: 'usr-demo', name, initials: teacher ? 'NH' : 'NA', email, role, accessToken: 'demo-access-token' });
+    const admin = role === 'admin';
+    const email = identity || (admin ? 'admin@hcmut.edu.vn' : teacher ? 'giangvien@hcmut.edu.vn' : 'sinhvien@hcmut.edu.vn');
+    const name = admin ? 'Quản trị G4LMS' : teacher ? 'Nguyễn Văn Hùng' : 'Nguyễn Anh';
+    return wait({ id: admin ? 'usr-admin-demo' : 'usr-demo', name, initials: admin ? 'QT' : teacher ? 'NH' : 'NA', email, role, accessToken: 'demo-access-token' });
   },
+  getAdminUsers: (): Promise<AdminUser[]> => wait(adminUsers.filter((user) => user.active).map((user) => ({ ...user }))),
+  createAdminUser(input: { email: string; fullName: string; role: Role }): Promise<AdminUser> {
+    if (adminUsers.some((user) => user.email.toLowerCase() === input.email.toLowerCase())) {
+      return Promise.reject(new Error('Email đã được sử dụng.'));
+    }
+    const user: AdminUser = {
+      id: `usr-${Date.now()}`,
+      email: input.email,
+      name: input.fullName,
+      role: input.role,
+      createdAt: new Date().toISOString(),
+      active: true,
+    };
+    adminUsers.unshift(user);
+    return wait({ ...user });
+  },
+  resetAdminUserPassword(userId: string): Promise<void> {
+    if (!adminUsers.some((user) => user.id === userId && user.active)) {
+      return Promise.reject(new Error('Không tìm thấy tài khoản.'));
+    }
+    return wait(undefined);
+  },
+  deleteAdminUser(userId: string): Promise<void> {
+    const target = adminUsers.find((user) => user.id === userId);
+    if (!target || target.role === 'admin') return Promise.reject(new Error('Không thể xóa tài khoản này.'));
+    target.active = false;
+    return wait(undefined);
+  },
+  getAdminEnrollments(): Promise<{
+    students: AdminStudentOption[];
+    courses: AdminCourseOption[];
+    enrollments: AdminEnrollment[];
+  }> {
+    const students = adminUsers.filter((user) => user.active && user.role === 'student')
+      .map(({ id, name, email }) => ({ id, name, email }));
+    const courses = data.teacherCourses.map((course) => ({
+      id: course.id,
+      code: course.code,
+      title: course.title,
+      semester: 'HK261',
+      year: 2026,
+    }));
+    return wait({ students, courses, enrollments: adminEnrollments.map((enrollment) => ({ ...enrollment })) });
+  },
+  createAdminEnrollment(input: { studentId: string; courseId: string }): Promise<AdminEnrollment> {
+    const student = adminUsers.find((user) => user.id === input.studentId && user.role === 'student' && user.active);
+    const course = data.teacherCourses.find((item) => item.id === input.courseId);
+    if (!student || !course) return Promise.reject(new Error('Không tìm thấy sinh viên hoặc khóa học.'));
+    if (adminEnrollments.some((item) => item.studentId === input.studentId && item.courseId === input.courseId)) {
+      return Promise.reject(new Error('Sinh viên đã được ghi danh khóa học này.'));
+    }
+    const enrollment: AdminEnrollment = {
+      id: `enr-${Date.now()}`,
+      studentId: student.id,
+      studentName: student.name,
+      studentEmail: student.email,
+      courseId: course.id,
+      courseCode: course.code,
+      courseTitle: course.title,
+      enrolledAt: new Date().toISOString(),
+      progress: 0,
+    };
+    adminEnrollments.unshift(enrollment);
+    return wait({ ...enrollment });
+  },
+  deleteAdminEnrollment(enrollmentId: string): Promise<void> {
+    const index = adminEnrollments.findIndex((item) => item.id === enrollmentId);
+    if (index < 0) return Promise.reject(new Error('Không tìm thấy bản ghi ghi danh.'));
+    adminEnrollments.splice(index, 1);
+    return wait(undefined);
+  },
+  getAdminStats(): Promise<AdminStats> {
+    const activeUsers = adminUsers.filter((u) => u.active);
+    const teachersList = activeUsers
+      .filter((u) => u.role === 'teacher')
+      .map(({ id, name, email }) => ({ id, name, email }));
+    return wait({
+      students: activeUsers.filter((u) => u.role === 'student').length + teacherRoster.length,
+      teachers: teachersList.length,
+      admins: activeUsers.filter((u) => u.role === 'admin').length,
+      courses: data.teacherCourses.length,
+      enrollments: adminEnrollments.length + teacherRoster.length,
+      assignments: assignments.length,
+      announcements: adminAnnouncements.length + courseAnnouncements.length,
+      teachersList,
+    });
+  },
+  getAdminCourses(): Promise<AdminCourseRecord[]> {
+    const defaultTeacher = adminUsers.find((u) => u.role === 'teacher' && u.active);
+    return wait(
+      data.teacherCourses.map((course) => ({
+        id: course.id,
+        code: course.code,
+        title: course.title,
+        description: course.description ?? 'Học phần thuộc chương trình đào tạo chuẩn G4LMS.',
+        faculty: course.faculty,
+        semester: course.semester ?? 'HK261',
+        year: course.year ?? 2026,
+        theme: course.theme,
+        published: course.published,
+        lecturerId: defaultTeacher?.id ?? 'usr-teacher-demo',
+        lecturerName: defaultTeacher?.name ?? 'Nguyễn Văn Hùng',
+        students: course.students,
+      })),
+    );
+  },
+  createAdminCourse(input: {
+    code: string;
+    title: string;
+    description?: string;
+    faculty: string;
+    semester?: string;
+    year?: number;
+    theme?: TeacherCourse['theme'];
+    published?: boolean;
+    lecturerId?: string | null;
+  }): Promise<AdminCourseRecord> {
+    if (data.teacherCourses.some((item) => item.code.toLowerCase() === input.code.toLowerCase())) {
+      return Promise.reject(new Error('Khóa học với mã này đã tồn tại.'));
+    }
+    const teacher = adminUsers.find((u) => u.id === input.lecturerId && u.role === 'teacher');
+    const created: TeacherCourse = {
+      id: input.code.toUpperCase(),
+      code: input.code.toUpperCase(),
+      title: input.title,
+      description: input.description ?? '',
+      faculty: input.faculty,
+      semester: input.semester ?? 'HK261',
+      year: input.year ?? 2026,
+      theme: input.theme ?? 'blue',
+      students: 0,
+      published: input.published ?? true,
+      nodesWithContent: 0,
+      totalNodes: 0,
+    };
+    data.teacherCourses.unshift(created);
+    return wait({
+      id: created.id,
+      code: created.code,
+      title: created.title,
+      description: created.description ?? '',
+      faculty: created.faculty,
+      semester: created.semester ?? 'HK261',
+      year: created.year ?? 2026,
+      theme: created.theme,
+      published: created.published,
+      lecturerId: teacher?.id ?? null,
+      lecturerName: teacher?.name ?? '',
+      students: 0,
+      createdAt: new Date().toISOString(),
+    });
+  },
+  updateAdminCourse(courseId: string, input: UpdateTeacherCourseInput): Promise<AdminCourseRecord> {
+    const course = data.teacherCourses.find((item) => item.id === courseId);
+    if (!course) return Promise.reject(new Error('Không tìm thấy khóa học.'));
+    if (input.code !== undefined) course.code = input.code;
+    if (input.title !== undefined) course.title = input.title;
+    if (input.description !== undefined) course.description = input.description;
+    if (input.faculty !== undefined) course.faculty = input.faculty;
+    if (input.semester !== undefined) course.semester = input.semester;
+    if (input.year !== undefined) course.year = input.year;
+    if (input.theme !== undefined) course.theme = input.theme;
+    if (input.published !== undefined) course.published = input.published;
+    const teacher = adminUsers.find((u) => u.id === input.lecturerId && u.role === 'teacher');
+    return wait({
+      id: course.id,
+      code: course.code,
+      title: course.title,
+      description: course.description ?? '',
+      faculty: course.faculty,
+      semester: course.semester ?? 'HK261',
+      year: course.year ?? 2026,
+      theme: course.theme,
+      published: course.published,
+      lecturerId: teacher?.id ?? input.lecturerId ?? 'usr-teacher-demo',
+      lecturerName: teacher?.name ?? 'Nguyễn Văn Hùng',
+      students: course.students,
+    });
+  },
+  deleteAdminCourse(courseId: string): Promise<void> {
+    const index = data.teacherCourses.findIndex((item) => item.id === courseId);
+    if (index < 0) return Promise.reject(new Error('Không tìm thấy khóa học.'));
+    data.teacherCourses.splice(index, 1);
+    return wait(undefined);
+  },
+  getAdminAnnouncements(): Promise<AdminAnnouncementRecord[]> {
+    const courseItems: AdminAnnouncementRecord[] = courseAnnouncements.map((item) => ({
+      id: item.id,
+      courseId: item.courseId,
+      courseName: item.courseId,
+      title: item.title,
+      body: item.body,
+      status: item.status,
+      isGlobal: false,
+      authorName: 'Giảng viên',
+      createdAt: item.createdAt,
+      publishedAt: item.publishedAt ?? null,
+    }));
+    return wait([...adminAnnouncements, ...courseItems]);
+  },
+  createAdminAnnouncement(input: {
+    title: string;
+    body: string;
+    courseId?: string | null;
+    isGlobal?: boolean;
+    status?: 'draft' | 'published';
+  }): Promise<AdminAnnouncementRecord> {
+    const now = new Date().toISOString();
+    const isGlobal = input.isGlobal ?? !input.courseId;
+    const course = data.teacherCourses.find((c) => c.id === input.courseId);
+    const record: AdminAnnouncementRecord = {
+      id: `ann-admin-${Date.now()}`,
+      courseId: isGlobal ? null : (input.courseId ?? null),
+      courseName: isGlobal ? 'Toàn trường' : (course ? `${course.code} - ${course.title}` : (input.courseId ?? 'Khóa học')),
+      title: input.title.trim(),
+      body: input.body.trim(),
+      status: input.status ?? 'published',
+      isGlobal,
+      authorName: 'Quản trị G4LMS',
+      createdAt: now,
+      publishedAt: (input.status ?? 'published') === 'published' ? now : null,
+    };
+    adminAnnouncements.unshift(record);
+    return wait({ ...record });
+  },
+  updateAdminAnnouncement(
+    announcementId: string,
+    input: { title?: string; body?: string; status?: 'draft' | 'published'; isGlobal?: boolean },
+  ): Promise<AdminAnnouncementRecord> {
+    const target = adminAnnouncements.find((item) => item.id === announcementId);
+    if (!target) return Promise.reject(new Error('Không tìm thấy thông báo.'));
+    if (input.title !== undefined) target.title = input.title.trim();
+    if (input.body !== undefined) target.body = input.body.trim();
+    if (input.status !== undefined) {
+      target.status = input.status;
+      target.publishedAt = input.status === 'published' ? new Date().toISOString() : null;
+    }
+    if (input.isGlobal !== undefined) target.isGlobal = input.isGlobal;
+    return wait({ ...target });
+  },
+  deleteAdminAnnouncement(announcementId: string): Promise<void> {
+    const index = adminAnnouncements.findIndex((item) => item.id === announcementId);
+    if (index >= 0) {
+      adminAnnouncements.splice(index, 1);
+      return wait(undefined);
+    }
+    const courseIdx = courseAnnouncements.findIndex((item) => item.id === announcementId);
+    if (courseIdx >= 0) {
+      courseAnnouncements.splice(courseIdx, 1);
+      return wait(undefined);
+    }
+    return Promise.reject(new Error('Không tìm thấy thông báo.'));
+  },
+  getHomeAnnouncements(): Promise<AdminAnnouncementRecord[]> {
+    return wait(adminAnnouncements.filter((item) => item.status === 'published').map((item) => ({ ...item })));
+  },
+
   getDashboard: (): Promise<DashboardData> => wait({
     activities: dashboardActivities,
     calendarEvents,
   }),
   getHomeSlides: (): Promise<HomeSlide[]> => wait(homepageSlides),
   getLoginHeroStats: (): Promise<LoginHeroStat[]> => wait(loginHeroStats),
-  getProfileDetails: (role: Role): Promise<ProfileDetails> => wait(profileDetails[role]),
+  getProfileDetails: (role: Role): Promise<ProfileDetails> =>
+    wait(role === 'teacher' ? profileDetails.teacher : profileDetails.student),
   getNotifications: (): Promise<NotificationRecord[]> => wait(notifications),
   markNotificationsRead: (): Promise<void> => {
     notifications.forEach((notification) => { notification.read = true; });
@@ -119,10 +461,35 @@ export const mockApi = {
   getTeacherCourses: (): Promise<TeacherCourse[]> => wait(data.teacherCourses),
   createTeacherCourse(input: CreateTeacherCourseInput): Promise<TeacherCourse> {
     const course: TeacherCourse = {
-      ...input, id: input.code, theme: 'orange', students: 0, published: false, nodesWithContent: 0, totalNodes: 0,
+      ...input,
+      id: input.code,
+      theme: input.theme ?? 'orange',
+      students: 0,
+      published: false,
+      nodesWithContent: 0,
+      totalNodes: 0,
     };
     data.teacherCourses.unshift(course);
     return wait(course);
+  },
+  updateTeacherCourse(courseId: string, input: UpdateTeacherCourseInput): Promise<TeacherCourse> {
+    const course = data.teacherCourses.find((item) => item.id === courseId);
+    if (!course) return Promise.reject(new Error('Không tìm thấy khóa học.'));
+    if (input.code !== undefined) course.code = input.code;
+    if (input.title !== undefined) course.title = input.title;
+    if (input.description !== undefined) course.description = input.description;
+    if (input.faculty !== undefined) course.faculty = input.faculty;
+    if (input.semester !== undefined) course.semester = input.semester;
+    if (input.year !== undefined) course.year = input.year;
+    if (input.theme !== undefined) course.theme = input.theme;
+    if (input.published !== undefined) course.published = input.published;
+    return wait({ ...course });
+  },
+  deleteTeacherCourse(courseId: string): Promise<void> {
+    const index = data.teacherCourses.findIndex((item) => item.id === courseId);
+    if (index < 0) return Promise.reject(new Error('Không tìm thấy khóa học.'));
+    data.teacherCourses.splice(index, 1);
+    return wait(undefined);
   },
   getCourseSections: (courseId: string) => wait(courseId === 'CO3093' ? networkCourseSections : studentCourseSections),
   getStudentGrades: (courseId: string): Promise<StudentGradeItem[]> => wait(studentGradesByCourse[courseId] ?? []),
@@ -196,11 +563,50 @@ export const mockApi = {
     session.status = input.status;
     return wait(session);
   },
-  getTeacherRoster: (_courseId: string) => wait(teacherRoster),
+  deleteAttendanceSession(courseId: string, sessionId: string): Promise<void> {
+    const index = attendanceSessions.findIndex((item) => item.courseId === courseId && item.id === sessionId);
+    if (index < 0) return Promise.reject(new Error('Không tìm thấy buổi điểm danh.'));
+    attendanceSessions.splice(index, 1);
+    return wait(undefined);
+  },
+  getTeacherRoster: (_courseId: string) =>
+    wait(
+      teacherRoster.map((student) => ({
+        ...student,
+        email: student.email ?? `${student.id}@hcmut.edu.vn`,
+        enrolledAt: student.enrolledAt ?? '2026-09-01T08:00:00Z',
+      })),
+    ),
   getTeacherGradebook: (_courseId: string): Promise<TeacherGradeRow[]> => wait(teacherGradebook),
+  updateTeacherGradebookRow(
+    _courseId: string,
+    studentId: string,
+    input: UpdateGradebookRowInput,
+  ): Promise<TeacherGradeRow> {
+    const row = teacherGradebook.find((item) => item.id === studentId);
+    if (!row) return Promise.reject(new Error('Không tìm thấy sinh viên trong bảng điểm.'));
+    row.midterm = input.midterm;
+    row.project = input.project;
+    row.final = input.final;
+    row.attendance = input.attendance;
+    row.totalScore =
+      row.midterm !== null && row.project !== null && row.final !== null && row.attendance !== null
+        ? Number((row.midterm * 0.3 + row.project * 0.25 + row.final * 0.35 + (row.attendance / 10) * 0.1).toFixed(1))
+        : null;
+    return wait({ ...row });
+  },
   getTeacherCourseTopics: (_courseId: string): Promise<TeacherCourseTopic[]> => wait(teacherCourseTopics),
   getAssignments(courseId: string, role: Role): Promise<Assignment[]> {
-    const rows = assignments.filter((item) => item.courseId === courseId && (role === 'teacher' || item.status === 'published'));
+    const rows = assignments
+      .filter((item) => item.courseId === courseId && (role === 'teacher' || item.status === 'published'))
+      .map((item) => {
+        const subs = assignmentSubmissions[item.id] ?? [];
+        return {
+          ...item,
+          submissionCount: subs.length,
+          gradedCount: subs.filter((s) => s.score !== null).length,
+        };
+      });
     return wait(rows);
   },
   getAnnouncements(courseId: string, role: Role): Promise<Announcement[]> {
@@ -208,7 +614,14 @@ export const mockApi = {
   },
   createAnnouncement(courseId: string, input: CreateAnnouncementInput): Promise<Announcement> {
     const now = new Date().toISOString();
-    const item: Announcement = { ...input, id: `ann-${Date.now()}`, courseId, status: 'draft', createdAt: now };
+    const item: Announcement = {
+      ...input,
+      id: `ann-${Date.now()}`,
+      courseId,
+      status: 'draft',
+      authorName: 'Nguyễn Văn Hùng',
+      createdAt: now,
+    };
     courseAnnouncements.unshift(item);
     return wait(item);
   },
@@ -217,11 +630,33 @@ export const mockApi = {
     if (!item) return Promise.reject(new Error('Không tìm thấy thông báo.'));
     item.status = status;
     item.publishedAt = status === 'published' ? new Date().toISOString() : undefined;
-    return wait(item);
+    return wait({ ...item });
+  },
+  updateAnnouncement(courseId: string, announcementId: string, input: UpdateAnnouncementInput): Promise<Announcement> {
+    const item = courseAnnouncements.find((entry) => entry.courseId === courseId && entry.id === announcementId);
+    if (!item) return Promise.reject(new Error('Không tìm thấy thông báo.'));
+    if (input.title !== undefined) item.title = input.title.trim();
+    if (input.body !== undefined) item.body = input.body.trim();
+    if (input.status !== undefined) {
+      item.status = input.status;
+      item.publishedAt = input.status === 'published' ? (item.publishedAt ?? new Date().toISOString()) : undefined;
+    }
+    return wait({ ...item });
+  },
+  deleteAnnouncement(courseId: string, announcementId: string): Promise<void> {
+    const index = courseAnnouncements.findIndex((entry) => entry.courseId === courseId && entry.id === announcementId);
+    if (index < 0) return Promise.reject(new Error('Không tìm thấy thông báo.'));
+    courseAnnouncements.splice(index, 1);
+    return wait(undefined);
   },
   createAssignment(courseId: string, input: CreateAssignmentInput): Promise<Assignment> {
     const assignment: Assignment = {
-      ...input, id: `asg-${Date.now()}`, courseId, status: 'draft',
+      ...input,
+      id: `asg-${Date.now()}`,
+      courseId,
+      status: 'draft',
+      submissionCount: 0,
+      gradedCount: 0,
     };
     assignments.unshift(assignment);
     return wait(assignment);
@@ -230,16 +665,134 @@ export const mockApi = {
     const assignment = assignments.find((item) => item.courseId === courseId && item.id === assignmentId);
     if (!assignment) return Promise.reject(new Error('Không tìm thấy bài tập.'));
     assignment.status = status;
-    return wait(assignment);
+    return wait({ ...assignment });
+  },
+  updateAssignment(courseId: string, assignmentId: string, input: UpdateAssignmentInput): Promise<Assignment> {
+    const assignment = assignments.find((item) => item.courseId === courseId && item.id === assignmentId);
+    if (!assignment) return Promise.reject(new Error('Không tìm thấy bài tập.'));
+    if (input.title !== undefined) assignment.title = input.title.trim();
+    if (input.description !== undefined) assignment.description = input.description.trim();
+    if (input.dueAt !== undefined) assignment.dueAt = input.dueAt;
+    if (input.maxScore !== undefined) assignment.maxScore = input.maxScore;
+    if (input.status !== undefined) assignment.status = input.status;
+    return wait({ ...assignment });
+  },
+  deleteAssignment(courseId: string, assignmentId: string): Promise<void> {
+    const index = assignments.findIndex((item) => item.courseId === courseId && item.id === assignmentId);
+    if (index < 0) return Promise.reject(new Error('Không tìm thấy bài tập.'));
+    assignments.splice(index, 1);
+    return wait(undefined);
   },
   submitAssignment(courseId: string, assignmentId: string, input: SubmitAssignmentInput): Promise<Assignment> {
     const assignment = assignments.find((item) => item.courseId === courseId && item.id === assignmentId);
     if (!assignment || assignment.status !== 'published') return Promise.reject(new Error('Bài tập không khả dụng.'));
+    const now = new Date().toISOString();
     assignment.submissionText = input.text;
     assignment.submissionStatus = 'submitted';
-    assignment.submittedAt = new Date().toISOString();
-    return wait(assignment);
+    assignment.submittedAt = now;
+    const existingList = assignmentSubmissions[assignmentId] ?? [];
+    const existing = existingList.find((item) => item.studentId === '2252001');
+    if (existing) {
+      existing.text = input.text;
+      existing.submittedAt = now;
+      existing.status = 'submitted';
+    } else {
+      existingList.unshift({
+        id: `sub-${Date.now()}`,
+        studentId: '2252001',
+        studentName: 'Nguyễn Anh',
+        text: input.text,
+        submittedAt: now,
+        status: 'submitted',
+        score: null,
+        feedback: null,
+      });
+    }
+    assignmentSubmissions[assignmentId] = existingList;
+    return wait({ ...assignment });
   },
+  getAssignmentSubmissions(_courseId: string, assignmentId: string): Promise<AssignmentSubmissionRecord[]> {
+    return wait((assignmentSubmissions[assignmentId] ?? []).map((item) => ({ ...item })));
+  },
+  gradeSubmission(
+    courseId: string,
+    assignmentId: string,
+    submissionId: string,
+    input: { score: number; feedback?: string | null },
+  ): Promise<AssignmentSubmissionRecord> {
+    const assignment = assignments.find((item) => item.courseId === courseId && item.id === assignmentId);
+    if (!assignment) return Promise.reject(new Error('Không tìm thấy bài tập.'));
+    if (input.score < 0 || input.score > assignment.maxScore) {
+      return Promise.reject(new Error('Điểm không hợp lệ.'));
+    }
+    const list = assignmentSubmissions[assignmentId] ?? [];
+    const target = list.find((item) => item.id === submissionId);
+    if (!target) return Promise.reject(new Error('Không tìm thấy bài nộp.'));
+    target.score = input.score;
+    target.feedback = input.feedback ?? null;
+    target.status = 'graded';
+    if (target.studentId === '2252001') {
+      assignment.score = input.score;
+      assignment.feedback = input.feedback ?? null;
+      assignment.submissionStatus = 'graded';
+    }
+    return wait({ ...target });
+  },
+  getStudentLearningProfile(courseId?: string): Promise<StudentLearningProfile> {
+    const courses = data.studentCourses
+      .filter((c) => !courseId || c.id === courseId)
+      .map((c) => ({
+        courseId: c.id,
+        courseCode: c.code,
+        courseTitle: c.title,
+        progress: c.progress,
+        gap: c.gap,
+        totalNodes: 12,
+        masteredNodes: Math.round((c.progress / 100) * 12),
+        inProgressNodes: 3,
+        averageMastery: c.progress,
+      }));
+    const graph = courseId === 'CO3093' ? data.computerNetworksOverview : data.studentOverview;
+    const knowledgeGaps = graph.nodes
+      .filter((n) => (n.mastery ?? 0) < 80)
+      .slice(0, 6)
+      .map((n) => ({
+        id: n.id,
+        title: n.label,
+        courseId: courseId ?? 'CO3093',
+        courseCode: courseId ?? 'CO3093',
+        cluster: n.sub ?? 'Trọng tâm',
+        mastery: n.mastery ?? 40,
+        lo: n.lo ?? 'LO1',
+      }));
+    return wait({
+      studentId: '2252001',
+      overallProgress: courses.length ? Math.round(courses.reduce((s, c) => s + c.progress, 0) / courses.length) : 0,
+      courses,
+      knowledgeGaps,
+    });
+  },
+  getCourseRecommendations(courseId: string): Promise<CourseRecommendation[]> {
+    const graph = courseId === 'CO3093' ? data.computerNetworksOverview : data.studentOverview;
+    const items: CourseRecommendation[] = graph.nodes
+      .filter((n) => (n.mastery ?? 0) < 80)
+      .slice(0, 5)
+      .map((n, index) => ({
+        nodeId: n.id,
+        title: n.label,
+        subtitle: n.sub,
+        clusterName: n.tag ?? 'Cụm kiến thức trọng tâm',
+        learningOutcomeId: n.lo ?? 'LO2',
+        currentMastery: n.mastery ?? 35,
+        aiHint: `Ôn tập khái niệm ${n.label} và hoàn thành bài quiz ngắn để nâng mức thành thạo lên trên 80%.`,
+        score: Number((0.92 - index * 0.08).toFixed(2)),
+        reason: (n.mastery ?? 0) === 0
+          ? 'Sẵn sàng học mới — đã hoàn thành các kiến thức tiền đề.'
+          : `Độ thành thạo hiện tại ${n.mastery ?? 35}% — cần củng cố để mở khóa chủ đề tiếp theo.`,
+      }));
+    return wait(items);
+  },
+
   getQuizzes(courseId: string, role: Role): Promise<Quiz[]> {
     return wait(quizFixtures
       .filter(({ quiz }) => quiz.courseId === courseId && (role === 'teacher' || quiz.status === 'published'))

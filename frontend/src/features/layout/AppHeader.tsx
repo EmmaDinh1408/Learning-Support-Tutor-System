@@ -18,14 +18,25 @@ export function AppHeader({ editMode, onEditModeChange, showEditToggle }: Props)
 
   return (
     <header className="app-header">
-      <Link to="/home" className="brand">
+      <Link to={user?.role === 'admin' ? '/admin' : '/home'} className="brand">
         <GraduationCap size={14} /> <b>G4LMS</b>
       </Link>
       <nav className="main-nav">
-        <NavLink to="/home">{t('home')}</NavLink>
-        <NavLink to="/dashboard">{t('dashboard')}</NavLink>
-        <NavLink to={coursesPath}>{t('courses')}</NavLink>
+        {user?.role === 'admin' ? (
+          <>
+            <NavLink to="/admin" end>Quản trị hệ thống</NavLink>
+            <NavLink to="/admin/users">Người dùng</NavLink>
+            <NavLink to="/admin/enrollments">Ghi danh</NavLink>
+          </>
+        ) : (
+          <>
+            <NavLink to="/home">{t('home')}</NavLink>
+            <NavLink to="/dashboard">{t('dashboard')}</NavLink>
+            <NavLink to={coursesPath}>{t('courses')}</NavLink>
+          </>
+        )}
       </nav>
+
       <div className="header-right">
         {showEditToggle && (
           <label className="edit-toggle">

@@ -1,4 +1,4 @@
-import { CalendarCheck, Check, UserCheck } from 'lucide-react';
+import { CalendarCheck, Check, Trash2, UserCheck } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client';
@@ -32,11 +32,11 @@ export default function CourseAttendancePage() {
   const isVi = language === 'vi';
   const isTeacher = user?.role === 'teacher';
   const { data: teacherData, loading: teacherLoading, error: teacherError } = useAsync(
-    () => isTeacher ? api.getTeacherAttendance(courseId) : Promise.resolve(null),
+    () => (isTeacher ? api.getTeacherAttendance(courseId) : Promise.resolve(null)),
     [courseId, isTeacher],
   );
   const { data: studentData, loading: studentLoading, error: studentError } = useAsync(
-    () => isTeacher ? Promise.resolve(null) : api.getStudentAttendance(courseId),
+    () => (isTeacher ? Promise.resolve(null) : api.getStudentAttendance(courseId)),
     [courseId, isTeacher],
   );
   const [sessions, setSessions] = useState<AttendanceSession[]>([]);
@@ -45,6 +45,7 @@ export default function CourseAttendancePage() {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(localDateValue);
   const [actionError, setActionError] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -66,12 +67,14 @@ export default function CourseAttendancePage() {
   const createSession = async (event: FormEvent) => {
     event.preventDefault();
     setActionError('');
+    setActionMessage('');
     setBusy(true);
     try {
       const session = await api.createAttendanceSession(courseId, { title: title.trim(), date });
       setSessions((current) => [session, ...current]);
       setSelectedId(session.id);
       setTitle('');
+      setActionMessage(isVi ? 'Đã tạo buổi điểm danh.' : 'Attendance session created.');
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : (isVi ? 'Không thể tạo buổi điểm danh.' : 'Unable to create attendance session.'));
     } finally {
@@ -80,7 +83,11 @@ export default function CourseAttendancePage() {
   };
 
   const updateRecord = (studentId: string, status: AttendanceStatus) => {
-    setRecords((current) => current.map((record) => record.studentId === studentId ? { ...record, status } : record));
+    setRecords((current) => current.map((record) => (record.studentId === studentId ? { ...record, status } : record)));
+  };
+
+  const updateNote = (studentId: string, note: string) => {
+    setRecords((current) => current.map((record) => (record.studentId === studentId ? { ...record, note } : record)));
   };
 
   const markAllPresent = () => setRecords((current) => current.map((record) => ({ ...record, status: 'present' })));
@@ -88,12 +95,36 @@ export default function CourseAttendancePage() {
   const saveSession = async (status: AttendanceSession['status']) => {
     if (!selectedSession) return;
     setActionError('');
+    setActionMessage('');
     setBusy(true);
     try {
       const updated = await api.updateAttendanceSession(courseId, selectedSession.id, { records, status });
-      setSessions((current) => current.map((session) => session.id === updated.id ? updated : session));
+      setSessions((current) => current.map((session) => (session.id === updated.id ? updated : session)));
+      setActionMessage(
+        status === 'published'
+          ? (isVi ? 'Đã lưu và công bố điểm danh.' : 'Attendance published.')
+          : (isVi ? 'Đã lưu nháp điểm danh.' : 'Attendance draft saved.'),
+      );
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : (isVi ? 'Không thể lưu điểm danh.' : 'Unable to save attendance.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeSession = async (session: AttendanceSession) => {
+    if (!window.confirm(isVi ? `Xóa buổi điểm danh "${session.title}" (${session.date})?` : `Delete session "${session.title}"?`)) return;
+    setActionError('');
+    setActionMessage('');
+    setBusy(true);
+    try {
+      await api.deleteAttendanceSession(courseId, session.id);
+      const next = sessions.filter((item) => item.id !== session.id);
+      setSessions(next);
+      setSelectedId(next[0]?.id ?? '');
+      setActionMessage(isVi ? 'Đã xóa buổi điểm danh.' : 'Attendance session deleted.');
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : 'Không thể xóa buổi điểm danh.');
     } finally {
       setBusy(false);
     }
@@ -103,7 +134,9 @@ export default function CourseAttendancePage() {
     <div className="page">
       <AppHeader />
       <main className="container course-attendance-page">
-        {!isTeacher && <Link className="quiz-back" to={`/courses/${courseId}/content`}>{isVi ? '← Quay lại nội dung môn học' : '← Back to course content'}</Link>}
+        <Link className="quiz-back" to={isTeacher ? `/teacher/courses/${courseId}/content` : `/courses/${courseId}/content`}>
+          {isVi ? '← Quay lại nội dung môn học' : '← Back to course content'}
+        </Link>
         <div className="assignments-heading">
           <div>
             <span className="profile-kicker">{courseId}</span>
@@ -113,6 +146,7 @@ export default function CourseAttendancePage() {
         </div>
         {(teacherError || studentError) && <p className="form-error" role="alert">{teacherError?.message ?? studentError?.message}</p>}
         {actionError && <p className="form-error" role="alert">{actionError}</p>}
+        {actionMessage && <p className="admin-success" role="status">{actionMessage}</p>}
 
         {isTeacher ? (
           <>
@@ -134,8 +168,12 @@ export default function CourseAttendancePage() {
               <aside className="attendance-session-list">
                 <h2>{isVi ? 'Các buổi học' : 'Sessions'}</h2>
                 {sessions.map((session) => (
-                  <button type="button" key={session.id} className={selectedId === session.id ? 'active' : ''}
-                    onClick={() => setSelectedId(session.id)}>
+                  <button
+                    type="button"
+                    key={session.id}
+                    className={selectedId === session.id ? 'active' : ''}
+                    onClick={() => setSelectedId(session.id)}
+                  >
                     <strong>{session.title}</strong>
                     <span>{session.date} · {session.status === 'published' ? (isVi ? 'Đã công bố' : 'Published') : (isVi ? 'Bản nháp' : 'Draft')}</span>
                   </button>
@@ -146,37 +184,74 @@ export default function CourseAttendancePage() {
               {selectedSession && (
                 <section className="attendance-roster-card">
                   <div className="attendance-roster-heading">
-                    <div><h2>{selectedSession.title}</h2><p>{selectedSession.date} · {records.length} {isVi ? 'học viên' : 'students'}</p></div>
-                    <button type="button" className="btn btn-outline sm" onClick={markAllPresent} disabled={busy}>
-                      <UserCheck size={13} />{isVi ? 'Đánh dấu tất cả có mặt' : 'Mark all present'}
-                    </button>
+                    <div>
+                      <h2>{selectedSession.title}</h2>
+                      <p>{selectedSession.date} · {records.length} {isVi ? 'học viên' : 'students'}</p>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button type="button" className="btn btn-outline sm" onClick={markAllPresent} disabled={busy}>
+                        <UserCheck size={13} />{isVi ? 'Đánh dấu tất cả có mặt' : 'Mark all present'}
+                      </button>
+                      <button type="button" className="btn btn-danger sm" onClick={() => void removeSession(selectedSession)} disabled={busy}>
+                        <Trash2 size={13} />{isVi ? 'Xóa buổi' : 'Delete'}
+                      </button>
+                    </div>
                   </div>
                   <div className="attendance-table-wrap">
                     <table>
-                      <thead><tr><th>{isVi ? 'Mã học viên' : 'Student ID'}</th><th>{isVi ? 'Họ và tên' : 'Name'}</th><th>{isVi ? 'Trạng thái' : 'Status'}</th></tr></thead>
-                      <tbody>{records.map((record) => (
-                        <tr key={record.studentId}>
-                          <td>{record.studentId}</td><td>{record.name}</td>
-                          <td><select value={record.status} disabled={busy} onChange={(event) => {
-                            if (isAttendanceStatus(event.target.value)) updateRecord(record.studentId, event.target.value);
-                          }}>
-                            {(Object.keys(STATUS_LABELS) as AttendanceStatus[]).map((status) => (
-                              <option value={status} key={status}>{isVi ? STATUS_LABELS[status].vi : STATUS_LABELS[status].en}</option>
-                            ))}
-                          </select></td>
+                      <thead>
+                        <tr>
+                          <th>{isVi ? 'Mã học viên' : 'Student ID'}</th>
+                          <th>{isVi ? 'Họ và tên' : 'Name'}</th>
+                          <th>{isVi ? 'Trạng thái' : 'Status'}</th>
+                          <th>{isVi ? 'Ghi chú' : 'Note'}</th>
                         </tr>
-                      ))}</tbody>
+                      </thead>
+                      <tbody>
+                        {records.map((record) => (
+                          <tr key={record.studentId}>
+                            <td>{record.studentId}</td>
+                            <td>{record.name}</td>
+                            <td>
+                              <select
+                                value={record.status}
+                                disabled={busy}
+                                onChange={(event) => {
+                                  if (isAttendanceStatus(event.target.value)) updateRecord(record.studentId, event.target.value);
+                                }}
+                              >
+                                {(Object.keys(STATUS_LABELS) as AttendanceStatus[]).map((status) => (
+                                  <option value={status} key={status}>{isVi ? STATUS_LABELS[status].vi : STATUS_LABELS[status].en}</option>
+                                ))}
+                              </select>
+                            </td>
+                            <td>
+                              <input
+                                value={record.note ?? ''}
+                                disabled={busy}
+                                placeholder={isVi ? 'Ghi chú (tùy chọn)' : 'Optional note'}
+                                onChange={(event) => updateNote(record.studentId, event.target.value)}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
                     </table>
                   </div>
                   <div className="attendance-actions">
                     {selectedSession.status === 'draft' && (
-                      <button type="button" className="btn btn-outline" disabled={busy} onClick={() => saveSession('draft')}>
+                      <button type="button" className="btn btn-outline" disabled={busy} onClick={() => void saveSession('draft')}>
                         {isVi ? 'Lưu nháp' : 'Save draft'}
                       </button>
                     )}
-                    <button type="button" className="btn btn-primary" disabled={busy || records.some((record) => record.status === 'unmarked')}
-                      onClick={() => saveSession('published')}>
-                      <Check size={14} />{selectedSession.status === 'published'
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={busy || records.some((record) => record.status === 'unmarked')}
+                      onClick={() => void saveSession('published')}
+                    >
+                      <Check size={14} />
+                      {selectedSession.status === 'published'
                         ? (isVi ? 'Lưu và cập nhật' : 'Save changes')
                         : (isVi ? 'Công bố điểm danh' : 'Publish attendance')}
                     </button>

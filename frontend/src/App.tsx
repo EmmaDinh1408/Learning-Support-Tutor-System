@@ -20,19 +20,31 @@ import CourseFilesPage from './pages/CourseFilesPage';
 import CourseQuizzesPage from './pages/CourseQuizzesPage';
 import CourseAttendancePage from './pages/CourseAttendancePage';
 import MessagesPage from './pages/MessagesPage';
+import AdminDashboardPage from './pages/AdminDashboardPage';
+import AdminUsersPage from './pages/AdminUsersPage';
+import AdminEnrollmentsPage from './pages/AdminEnrollmentsPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import type { Role } from './types';
 import type { ReactNode } from 'react';
 
 function Guard({ role, children }: { role: Role; children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  if (loading) return <p className="container muted">Đang tải tài khoản...</p>;
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== role) return <Navigate to={user.role === 'teacher' ? '/teacher/courses' : '/courses'} replace />;
+  if (user.passwordResetRequired) return <Navigate to="/change-password" replace />;
+  if (user.role !== role) {
+    const destination = user.role === 'admin' ? '/admin' : user.role === 'teacher' ? '/teacher/courses' : '/courses';
+    return <Navigate to={destination} replace />;
+  }
   return <>{children}</>;
 }
 
 function SignedIn({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  if (loading) return <p className="container muted">Đang tải tài khoản...</p>;
   if (!user) return <Navigate to="/login" replace />;
+  if (user.passwordResetRequired) return <Navigate to="/change-password" replace />;
+  if (user.role === 'admin') return <Navigate to="/admin" replace />;
   return <>{children}</>;
 }
 
@@ -40,9 +52,13 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/change-password" element={<ResetPasswordPage />} />
       <Route path="/home" element={<SignedIn><HomePage /></SignedIn>} />
       <Route path="/dashboard" element={<SignedIn><DashboardPage /></SignedIn>} />
       <Route path="/messages" element={<SignedIn><MessagesPage /></SignedIn>} />
+      <Route path="/admin" element={<Guard role="admin"><AdminDashboardPage /></Guard>} />
+      <Route path="/admin/users" element={<Guard role="admin"><AdminUsersPage /></Guard>} />
+      <Route path="/admin/enrollments" element={<Guard role="admin"><AdminEnrollmentsPage /></Guard>} />
       <Route path="/courses" element={<Guard role="student"><StudentCoursesPage /></Guard>} />
       <Route path="/profile/student" element={<Guard role="student"><StudentProfilePage /></Guard>} />
       <Route path="/grades" element={<Guard role="student"><StudentGradesOverviewPage /></Guard>} />

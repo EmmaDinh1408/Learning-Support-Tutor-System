@@ -1,12 +1,15 @@
 # G4LMS API contract
 
 > **Audience:** backend engineers integrating the React frontend.
-> **Contract version:** 1.2 · **Base path:** `/api` · **Payload format:** JSON except file uploads
+> **Contract version:** 1.3 · **Base path:** `/api` · **Payload format:** JSON except file uploads
 
 This document is the frontend/backend agreement, not a claim that every route is
-already implemented. The current backend route modules are scaffolds. The
-frontend runs against the isolated repository-level `mockdata/` provider by
-default; set `VITE_USE_MOCK_API=false` and `VITE_API_URL` to use a real API.
+already implemented. The Python backend route modules are scaffolds. Supabase
+now provides authentication, profiles, courses, enrollments,
+assignments/submissions, announcements, attendance, and administrator
+workflows described below. The frontend still runs against the isolated
+repository-level `mockdata/` provider by default for remaining activities or
+the `/api` contract.
 
 ## Conventions
 
@@ -39,6 +42,95 @@ The frontend displays `message` and reads `code`; use `400` for invalid input,
 `404` for missing resources, `409` for state conflicts, and `500` for
 unexpected server errors. Do not return an HTTP 200 response containing an
 error.
+
+## Supabase setup and supported workflows
+
+The frontend's Supabase integration is enabled with:
+
+```env
+VITE_AUTH_PROVIDER=supabase
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=<publishable-or-anon-key>
+```
+
+The browser key is public; database access must rely on Row Level Security.
+Never put `SUPABASE_SERVICE_ROLE_KEY` in a `VITE_` variable or browser bundle.
+Set that key only as a Supabase Edge Function secret. Keep
+`VITE_USE_MOCK_API=true` until the remaining learning-content API routes are
+implemented; Supabase auth alone does not implement the Python `/api` routes.
+
+Apply `supabase/migrations/20260601000000_lms_core.sql` with the Supabase CLI
+(`supabase db push`) and deploy the functions under `supabase/functions/`.
+Configure Supabase Auth email delivery and the allowed redirect URL before
+using account invitations or password-reset emails.
+Set the Edge Function secrets outside the repository, for example with
+`supabase secrets set SUPABASE_ANON_KEY=... SUPABASE_SERVICE_ROLE_KEY=...`,
+then deploy `admin-create-user`, `admin-delete-user`, and
+`admin-reset-password`.
+
+The migration creates `profiles`, `user_roles`, `courses`, `enrollments`,
+`assignments`, `submissions`, `attendance_sessions`, `attendance_records`, and
+`announcements`. The frontend accesses these through the Supabase client:
+
+| Resource | Current frontend operations | Authorization |
+|---|---|---|
+| Auth and profiles | Sign in/out, profile read/update, password update/recovery | Supabase Auth; users update only their own name and date of birth |
+| Courses | Teacher list/create; student enrolled-course list | Published/enrolled visibility; course ownership for lecturer changes |
+| Enrollments | Admin list/create/delete | Admin only for mutations; students and course lecturers can read scoped rows |
+| Assignments/submissions | Course list, create/status changes, student text submission | Published assignments for enrolled students; owning lecturer for management |
+| Announcements | Course list, create, publish/unpublish | Published items for enrolled students; owning lecturer or admin for writes |
+| Attendance | Session list/create/update and student attendance summary | Published sessions for enrolled students; owning lecturer for management |
+
+RLS scopes personal records to their owner, course records to the course
+lecturer or enrolled students, and administrative operations to administrators.
+The app maps database role `lecturer` to frontend role `teacher`; `student`
+and `admin` map directly. Gradebook, quizzes, messaging, files, and knowledge
+graph endpoints still use the mock provider or `/api` contract; their presence
+in the schema/contract must not be interpreted as production persistence.
+
+The first administrator must be bootstrapped by a trusted project owner after
+creating the initial Auth account. Run once in the Supabase SQL editor, using
+that account's verified UUID:
+
+```sql
+INSERT INTO public.user_roles (user_id, role)
+VALUES ('<auth-user-uuid>', 'admin')
+ON CONFLICT (user_id) DO UPDATE SET role = EXCLUDED.role;
+```
+
+Do not expose a public admin-signup path. Subsequent accounts are invited
+through the authenticated `admin-create-user` Edge Function; users set their
+own password from the email link. The function verifies the caller's Auth
+session and database role before using the server-only service key.
+
+### Administrator Edge Functions
+
+All functions require `Authorization: Bearer <Supabase access token>`. They
+verify the token and administrator role themselves; JWT verification is
+disabled at the gateway only so the functions can return a consistent error
+shape. The service-role key is read only inside the Edge Function runtime.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/functions/v1/admin-create-user` | Invite a user and assign `student`, `lecturer`, or `admin` |
+| `POST` | `/functions/v1/admin-delete-user` | Delete a non-admin account; self-delete, admin deletion, and deletion of lecturers with owned courses are rejected |
+| `POST` | `/functions/v1/admin-reset-password` | Send a reset email; never returns or stores a password |
+
+Create request:
+
+```json
+{ "email": "student@university.edu", "full_name": "Nguyen Anh", "role": "student" }
+```
+
+Success returns `201` with the created account's ID, email, name, and role.
+Delete accepts `{ "user_id": "<uuid>" }` and returns `204`; reset accepts the
+same request and returns `200` after the email request is accepted. Input
+errors return `400`, unauthenticated callers `401`, non-admin callers `403`,
+and state conflicts `409`.
+
+The database trigger gives new Auth accounts the default `student` role; the
+trusted invite function then assigns the requested role. Passwords are never
+stored in application tables, returned to administrators, or logged.
 
 ## Authentication and account
 
@@ -91,8 +183,10 @@ profile; the account's opaque user ID is the separate `user.id` returned at
 login. `PATCH /me/profile` is contract-only and is not currently called by the
 UI. Agree on its editable request fields before implementation; the server
 must reject attempts to change account ID, role, enrollment, or faculty
-ownership. Roles are `student` and `teacher`; administrators should be added
-as a separate role before exposing administrative UI.
+ownership. Supabase roles are `student`, `lecturer`, and `admin`; the frontend
+uses `teacher` for the `lecturer` role. Supabase-backed profile editing permits
+only `full_name` and `date_of_birth`; email and role changes require a separate
+verified workflow.
 
 `/auth/refresh` and `/auth/logout` are contract extensions; the current
 frontend session provider only calls `/auth/login`. Refresh tokens should be
@@ -645,9 +739,9 @@ future work rather than implemented UI:
 | Quiz editing | Update quiz metadata/questions and delete/archive a quiz |
 | Quiz attempt recovery/history | Add a way to resume an in-progress attempt after reload and retrieve prior attempts/results, if those behaviors are required |
 | File lifecycle | Delete/replace course files and attach uploaded files to assignments |
-| LMS administration | Course enrollment, term management, roles, and audit history |
+| LMS administration | Term management, audit history, bulk import, and enrollment history |
 | Knowledge graph authoring | Persist graph generation jobs/results, node/edge edits, cluster approval, and learning-outcome mapping; current teacher graph UI uses local state for these actions |
-| Account and notifications | Define password recovery, profile-update fields, and per-notification read state before adding those UI workflows |
+| Account and notifications | Define per-notification read state and expand profile fields only with explicit column-level authorization |
 | Large-list pagination | Add cursor/filter contracts for course rosters, inboxes, and notifications when they exceed practical bounded response sizes; current v1 client expects direct arrays |
 
 Quiz attempts must persist and enforce attempt count, open/close window,
@@ -665,7 +759,11 @@ authorized role.
 4. Add integration tests for access denial, draft visibility, assignment
    submission deadlines, grade privacy, quiz answer secrecy, attendance
    scoping, and upload validation.
-5. Set `VITE_API_URL` and `VITE_USE_MOCK_API=false`, then verify login, course
-   list, graph, grades, roster, assignment creation/publication/submission, and
-   notifications, quiz authoring/attempts, uploads, attendance, and messaging
-   against the backend.
+5. For the Supabase-backed workflows, apply the migration, deploy the Edge
+   Functions, set the three Supabase frontend variables above, and verify
+   authentication, profile updates, account invitations, course access,
+   enrollments, assignments/submissions, announcements, and attendance against
+   a configured Supabase project.
+6. Only set `VITE_USE_MOCK_API=false` after the Python `/api` routes are
+   implemented; then verify graph, gradebook, quizzes, messaging, and file
+   storage separately. Those paths are not made persistent by this migration.

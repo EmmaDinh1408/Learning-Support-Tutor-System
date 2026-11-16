@@ -46,17 +46,25 @@ function MenuLink({ icon, children, onClick }: { icon: ReactNode; children: Reac
 }
 
 export default function LMSHeaderActions() {
-  const { user, setUser } = useAuth();
+  const { user, signOut } = useAuth();
   const { language, setLanguage } = useLanguage();
   const nav = useNavigate();
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const [notificationItems, setNotificationItems] = useState<NotificationRecord[]>([]);
   const [notificationError, setNotificationError] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
-  const { data: notificationData, error: notificationsError } = useAsync(() => api.getNotifications(), []);
-  const { data: messageData, error: messagesError } = useAsync(() => api.getMessages(), []);
+  const { data: notificationData, error: notificationsError } = useAsync(
+    () => user?.role === 'admin' ? Promise.resolve([]) : api.getNotifications(),
+    [user?.role],
+  );
+  const { data: messageData, error: messagesError } = useAsync(
+    () => user?.role === 'admin' ? Promise.resolve([]) : api.getMessages(),
+    [user?.role],
+  );
   const { data: courses, error: coursesError } = useAsync(
-    async () => user?.role === 'teacher' ? await api.getTeacherCourses() : await api.getStudentCourses(),
+    async () => user?.role === 'teacher'
+      ? await api.getTeacherCourses()
+      : user?.role === 'admin' ? [] : await api.getStudentCourses(),
     [user?.role],
   );
   const notifications = notificationItems;
@@ -79,10 +87,16 @@ export default function LMSHeaderActions() {
     setOpenMenu((current) => current === menu ? null : menu);
   };
 
-  const logout = () => {
-    setUser(null);
-    setOpenMenu(null);
-    nav('/login');
+  const [logoutError, setLogoutError] = useState('');
+  const logout = async () => {
+    setLogoutError('');
+    try {
+      await signOut();
+      setOpenMenu(null);
+      nav('/login');
+    } catch (reason) {
+      setLogoutError(reason instanceof Error ? reason.message : 'Không thể đăng xuất.');
+    }
   };
 
   const markNotificationsRead = async () => {
@@ -97,6 +111,10 @@ export default function LMSHeaderActions() {
 
   const openGrades = () => {
     setOpenMenu(null);
+    if (user?.role === 'admin') {
+      nav('/admin');
+      return;
+    }
     if (user?.role !== 'teacher') {
       nav('/grades');
       return;
@@ -113,7 +131,7 @@ export default function LMSHeaderActions() {
 
   return (
     <div ref={containerRef} className="header-actions">
-      <div className="header-action-menu">
+      {user?.role !== 'admin' && <div className="header-action-menu">
         <button
           type="button"
           className={`icon-btn header-action-button ${openMenu === 'notifications' ? 'active' : ''}`}
@@ -124,7 +142,6 @@ export default function LMSHeaderActions() {
           <Bell size={15} />
           {hasUnreadNotifications && <span className="badge-dot" />}
         </button>
-
         {openMenu === 'notifications' && (
           <div className="header-popover header-notifications">
             <div className="header-popover-header">
@@ -146,9 +163,9 @@ export default function LMSHeaderActions() {
             </div>
           </div>
         )}
-      </div>
+      </div>}
 
-      <div className="header-action-menu">
+      {user?.role !== 'admin' && <div className="header-action-menu">
         <button
           type="button"
           className={`icon-btn header-action-button ${openMenu === 'messages' ? 'active' : ''}`}
@@ -186,7 +203,7 @@ export default function LMSHeaderActions() {
             </button>
           </div>
         )}
-      </div>
+      </div>}
 
       <div className="header-action-menu header-user-menu">
         <button
@@ -203,8 +220,8 @@ export default function LMSHeaderActions() {
           <div className="header-popover header-user-popover">
             <div className="header-user-summary">
               <strong>{language === 'vi'
-                ? (user?.role === 'teacher' ? 'Tài khoản giảng viên' : 'Tài khoản sinh viên')
-                : (user?.role === 'teacher' ? 'Teacher account' : 'Student account')}</strong>
+                ? (user?.role === 'teacher' ? 'Tài khoản giảng viên' : user?.role === 'admin' ? 'Tài khoản quản trị' : 'Tài khoản sinh viên')
+                : (user?.role === 'teacher' ? 'Teacher account' : user?.role === 'admin' ? 'Administrator account' : 'Student account')}</strong>
               <span>{user?.name}</span>
             </div>
             {coursesError && <p className="form-error" role="alert">{coursesError.message}</p>}
@@ -212,13 +229,17 @@ export default function LMSHeaderActions() {
               icon={<User size={14} />}
               onClick={() => {
                 setOpenMenu(null);
-                nav(user?.role === 'teacher' ? '/profile/teacher' : '/profile/student');
+                nav(user?.role === 'teacher' ? '/profile/teacher' : user?.role === 'admin' ? '/admin' : '/profile/student');
               }}
             >
-              {language === 'vi' ? 'Hồ sơ' : 'Profile'}
+              {language === 'vi' ? (user?.role === 'admin' ? 'Quản lý hệ thống' : 'Hồ sơ') : (user?.role === 'admin' ? 'System management' : 'Profile')}
             </MenuLink>
-            <MenuLink icon={<GraduationCap size={14} />} onClick={openGrades}>{language === 'vi' ? 'Điểm' : 'Grades'}</MenuLink>
-            <MenuLink icon={<Calendar size={14} />} onClick={() => { setOpenMenu(null); nav('/dashboard'); }}>{language === 'vi' ? 'Thời khoá biểu (TKB)' : 'Timetable'}</MenuLink>
+            {user?.role !== 'admin' && (
+              <>
+                <MenuLink icon={<GraduationCap size={14} />} onClick={openGrades}>{language === 'vi' ? 'Điểm' : 'Grades'}</MenuLink>
+                <MenuLink icon={<Calendar size={14} />} onClick={() => { setOpenMenu(null); nav('/dashboard'); }}>{language === 'vi' ? 'Thời khoá biểu (TKB)' : 'Timetable'}</MenuLink>
+              </>
+            )}
             <div className="header-language-section">
               <div className="header-language-label"><Globe size={14} /> {language === 'vi' ? 'Ngôn ngữ' : 'Language'}</div>
               <div className="header-language-options">
@@ -230,6 +251,7 @@ export default function LMSHeaderActions() {
               <LogOut size={14} />
               <span>{language === 'vi' ? 'Thoát' : 'Sign out'}</span>
             </button>
+            {logoutError && <p className="form-error" role="alert">{logoutError}</p>}
           </div>
         )}
       </div>
