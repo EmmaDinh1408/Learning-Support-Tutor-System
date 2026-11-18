@@ -2,6 +2,7 @@ import type {
   AdminAnnouncementRecord, AdminCourseOption, AdminCourseRecord, AdminEnrollment, AdminStats, AdminStudentOption, AdminUser, Announcement, Assignment, AssignmentSubmissionRecord, AttendanceSession, ClusterView, ConversationMessage, ConversationSummary,
   CourseFile, CourseOverallGrade, CourseRecommendation, CreateAnnouncementInput, CreateAssignmentInput, CreateAttendanceSessionInput,
   CreateConversationInput, CreateQuizInput, CreateTeacherCourseInput, DashboardData, HeatSpot, HomeSlide,
+  KnowledgeEdgeType, KnowledgeGraphData, KnowledgeGraphEdge, KnowledgeGraphNode, KnowledgeNodeType,
   LearningOutcome, LoginHeroStat, MessageContact, MessagePreview, NodeDetail, NodeEditorData,
   NotificationRecord, PdfFile, ProfileDetails, QueueSummary, Quiz, QuizAttempt, Role, StudentAttendanceData,
   StudentCourse, StudentGradeItem, StudentGraph, StudentLearningProfile, SubmitAssignmentInput, SubmitQuizInput, TeacherCourse,
@@ -19,7 +20,222 @@ import {
 const wait = <T,>(value: T, ms = 100): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
 const attempts = new Map<string, QuizAttempt>();
+const clusterViewStore = new Map<string, ClusterView>();
+const knowledgeGraphStore = new Map<string, KnowledgeGraphData>();
 const uploadedFiles: CourseFile[] = [];
+
+function normalizeKnowledgeEdgeType(kind: string): KnowledgeEdgeType {
+  if (kind === 'prereq' || kind === 'PREREQUISITE') return 'PREREQUISITE';
+  if (kind === 'PART_OF') return 'PART_OF';
+  if (kind === 'DEVELOP') return 'DEVELOP';
+  if (kind === 'EXPLAIN') return 'EXPLAIN';
+  if (kind === 'ASSESS') return 'ASSESS';
+  return 'RELATED_TO';
+}
+
+function buildFallbackKnowledgeGraph(courseId: string): KnowledgeGraphData {
+  const course =
+    data.teacherCourses.find((c) => c.id === courseId) ??
+    data.studentCourses.find((c) => c.id === courseId);
+  const courseTitle = course ? `${course.title} (${course.code})` : courseId;
+  const base = courseId === 'CO3093' ? data.computerNetworksTeacherGraph : data.teacherGraph;
+  const nodes: KnowledgeGraphNode[] = [
+    {
+      id: courseId,
+      name: courseTitle,
+      type: 'Course',
+      description: `Đồ thị tri thức tổng hợp cho môn ${courseTitle}.`,
+      properties: { code: course?.code ?? courseId },
+    },
+  ];
+  const edges: KnowledgeGraphEdge[] = [];
+  const nodeIds = new Set<string>([courseId]);
+
+  const addNode = (node: KnowledgeGraphNode) => {
+    if (nodeIds.has(node.id)) return;
+    nodeIds.add(node.id);
+    nodes.push(node);
+  };
+
+  data.learningOutcomes.forEach((lo) => {
+    const loId = `${courseId}.${lo.id}`;
+    addNode({
+      id: loId,
+      name: lo.title,
+      type: 'LO',
+      description: `Chuẩn đầu ra ${lo.id} của môn ${courseTitle}.`,
+      properties: { code: lo.id },
+    });
+    edges.push({ source: loId, target: courseId, type: 'DEVELOP', properties: { status: 'approved', confidence: 0.96 } });
+  });
+
+  base.clusters.forEach((cluster) => {
+    const chapterId = `ch${cluster.index}`;
+    const clusterNodeId = `${courseId}_${cluster.id}`;
+    addNode({
+      id: clusterNodeId,
+      name: cluster.name,
+      type: 'Concept',
+      description: `Chủ đề trọng tâm #${cluster.index}: ${cluster.name} (${cluster.nodeCount} khái niệm thành phần).`,
+      properties: {
+        chapter_id: chapterId,
+        status: cluster.approved ? 'approved' : 'proposed',
+        node_count: cluster.nodeCount,
+      },
+    });
+    cluster.lo.forEach((loCode) => {
+      const loId = `${courseId}.${loCode}`;
+      if (nodeIds.has(loId)) {
+        edges.push({
+          source: clusterNodeId,
+          target: loId,
+          type: 'DEVELOP',
+          properties: {
+            status: cluster.approved ? 'approved' : 'proposed',
+            confidence: cluster.approved ? 0.92 : 0.72,
+            reason: `Chủ đề ${cluster.name} phát triển trực tiếp chuẩn đầu ra ${loCode}.`,
+          },
+        });
+      }
+    });
+
+    const inner = data.buildClusterView(cluster.id);
+    inner.nodes
+      .filter((n) => !n.ghost)
+      .forEach((innerNode, idx) => {
+        const subId = `${courseId}_${innerNode.id}`;
+        addNode({
+          id: subId,
+          name: innerNode.name,
+          type: 'Concept',
+          description: `Khái niệm thuộc chủ đề ${cluster.name}.`,
+          properties: {
+            chapter_id: chapterId,
+            status: innerNode.status === 'approved' ? 'approved' : 'proposed',
+          },
+        });
+        edges.push({
+          source: subId,
+          target: clusterNodeId,
+          type: 'PART_OF',
+          properties: {
+            status: innerNode.status === 'approved' ? 'approved' : 'proposed',
+            confidence: innerNode.status === 'approved' ? 0.94 : 0.71,
+            reason: `${innerNode.name} là khái niệm con thuộc ${cluster.name}.`,
+          },
+        });
+
+        const slideId = `${subId}_slide_${idx + 1}`;
+        addNode({
+          id: slideId,
+          name: `Slide ${cluster.index}.${idx + 1}: ${innerNode.name}`,
+          type: 'Content',
+          description: `Tài liệu bài giảng giải thích chi tiết khái niệm ${innerNode.name}.`,
+          properties: { chapter_id: chapterId, page: idx + 1 },
+        });
+        edges.push({
+          source: slideId,
+          target: subId,
+          type: 'EXPLAIN',
+          properties: { status: 'approved', confidence: 0.9 },
+        });
+      });
+
+    inner.edges.forEach((edge) => {
+      const s = `${courseId}_${edge.from}`;
+      const t = `${courseId}_${edge.to}`;
+      if (nodeIds.has(s) && nodeIds.has(t)) {
+        edges.push({
+          source: s,
+          target: t,
+          type: edge.kind === 'prereq' ? 'PREREQUISITE' : 'RELATED_TO',
+          properties: {
+            status: edge.kind === 'prereq' ? 'approved' : 'proposed',
+            confidence: edge.kind === 'prereq' ? 0.88 : 0.74,
+            reason: 'Quan hệ được AI trích xuất từ giáo trình môn học.',
+          },
+        });
+      }
+    });
+  });
+
+  base.clusterEdges.forEach((edge, idx) => {
+    const s = `${courseId}_${edge.from}`;
+    const t = `${courseId}_${edge.to}`;
+    if (nodeIds.has(s) && nodeIds.has(t)) {
+      edges.push({
+        source: s,
+        target: t,
+        type: edge.kind === 'prereq' ? 'PREREQUISITE' : 'RELATED_TO',
+        properties: {
+          status: idx % 4 === 0 ? 'proposed' : 'approved',
+          confidence: idx % 4 === 0 ? 0.73 : 0.91,
+          reason:
+            edge.kind === 'prereq'
+              ? 'Cần nắm chủ đề trước để tiếp thu hiệu quả chủ đề sau.'
+              : 'Hai chủ đề có mối liên hệ chéo trong chương trình.',
+        },
+      });
+    }
+  });
+
+  const courseAssignments = assignments.filter((a) => a.courseId === courseId);
+  courseAssignments.forEach((asg, idx) => {
+    addNode({
+      id: asg.id,
+      name: asg.title,
+      type: 'Assignment',
+      description: asg.description,
+      properties: { kind: 'assignment', status: asg.status },
+    });
+    const lo = data.learningOutcomes[idx % data.learningOutcomes.length];
+    if (lo) {
+      edges.push({
+        source: asg.id,
+        target: `${courseId}.${lo.id}`,
+        type: 'DEVELOP',
+        properties: { status: 'approved', confidence: 0.9 },
+      });
+    }
+    const targetCluster = base.clusters[idx % base.clusters.length];
+    if (targetCluster) {
+      edges.push({
+        source: asg.id,
+        target: `${courseId}_${targetCluster.id}`,
+        type: 'ASSESS',
+        properties: { status: 'approved', confidence: 0.89 },
+      });
+    }
+  });
+
+  return { nodes, edges };
+}
+
+async function ensureKnowledgeGraph(courseId: string): Promise<KnowledgeGraphData> {
+  if (knowledgeGraphStore.has(courseId)) {
+    return knowledgeGraphStore.get(courseId)!;
+  }
+  if (courseId === 'CO3093' && typeof fetch === 'function') {
+    try {
+      const response = await fetch('/mockdata/prototypeGraph.json');
+      if (response.ok) {
+        const raw = (await response.json()) as KnowledgeGraphData;
+        const cloned: KnowledgeGraphData = {
+          nodes: raw.nodes.map((n) => ({ ...n, properties: { ...(n.properties ?? {}) } })),
+          edges: raw.edges.map((e) => ({ ...e, properties: { ...(e.properties ?? {}) } })),
+        };
+        knowledgeGraphStore.set(courseId, cloned);
+        return cloned;
+      }
+    } catch {
+      // Fallback to generated course graph if fixture endpoint is unavailable
+    }
+  }
+  const built = buildFallbackKnowledgeGraph(courseId);
+  knowledgeGraphStore.set(courseId, built);
+  return built;
+}
+
 const adminUsers: AdminUser[] = [
   { id: 'usr-admin-demo', email: 'admin@hcmut.edu.vn', name: 'Quản trị G4LMS', role: 'admin', createdAt: '2026-01-01T00:00:00Z', active: true },
   { id: 'usr-student-demo', email: 'sinhvien@hcmut.edu.vn', name: 'Nguyễn Anh', role: 'student', createdAt: '2026-01-02T00:00:00Z', active: true },
@@ -876,9 +1092,219 @@ export const mockApi = {
       ? data.computerNetworksOverview
       : clusterId === 'pointer' ? data.studentPointerCluster : data.studentOverview),
   getNodeDetail: (nodeId: string): Promise<NodeDetail> => wait(data.buildNodeDetail(nodeId), 60),
-  getTeacherGraph: (courseId: string): Promise<TeacherGraphData> =>
-    wait(courseId === 'CO3093' ? data.computerNetworksTeacherGraph : data.teacherGraph),
-  getClusterView: (clusterId: string): Promise<ClusterView> => wait(data.buildClusterView(clusterId)),
+  async getKnowledgeGraph(courseId: string): Promise<KnowledgeGraphData> {
+    const kg = await ensureKnowledgeGraph(courseId);
+    return wait({
+      nodes: kg.nodes.map((n) => ({ ...n, properties: { ...(n.properties ?? {}) } })),
+      edges: kg.edges.map((e) => ({ ...e, properties: { ...(e.properties ?? {}) } })),
+    }, 60);
+  },
+  getCourseGraph(courseId: string): Promise<TeacherGraphData> {
+    const base = courseId === 'CO3093' ? data.computerNetworksTeacherGraph : data.teacherGraph;
+    return wait({
+      stats: { ...base.stats },
+      clusters: base.clusters.map((c) => ({ ...c, lo: [...c.lo] })),
+      clusterEdges: base.clusterEdges.map((e) => ({ ...e })),
+    });
+  },
+  getTeacherGraph(courseId: string): Promise<TeacherGraphData> {
+    return this.getCourseGraph(courseId);
+  },
+  getCourseClusterView(_courseId: string, clusterId: string): Promise<ClusterView> {
+    return this.getClusterView(clusterId);
+  },
+  getClusterView(clusterId: string): Promise<ClusterView> {
+    if (!clusterViewStore.has(clusterId)) {
+      const built = data.buildClusterView(clusterId);
+      clusterViewStore.set(clusterId, {
+        nodes: built.nodes.map((n) => ({ ...n, lo: n.lo ? [...n.lo] : undefined })),
+        edges: built.edges.map((e) => ({ ...e })),
+      });
+    }
+    const view = clusterViewStore.get(clusterId)!;
+    return wait({
+      nodes: view.nodes.map((n) => ({ ...n, lo: n.lo ? [...n.lo] : undefined })),
+      edges: view.edges.map((e) => ({ ...e })),
+    });
+  },
+  async createGraphNode(
+    courseId: string,
+    input: {
+      name: string;
+      nodeType?: KnowledgeNodeType;
+      clusterId?: string | null;
+      description?: string;
+      x?: number;
+      y?: number;
+      lo?: string[];
+      properties?: Record<string, unknown>;
+    },
+  ): Promise<Record<string, unknown>> {
+    const kg = await ensureKnowledgeGraph(courseId);
+    const nodeType: KnowledgeNodeType = input.nodeType ?? 'Concept';
+    const id = `${String(nodeType).toLowerCase()}_${Date.now()}`;
+    const newKgNode: KnowledgeGraphNode = {
+      id,
+      name: input.name.trim(),
+      type: nodeType,
+      description: input.description?.trim() ?? '',
+      properties: { status: 'approved', custom: true, ...(input.properties ?? {}) },
+    };
+    kg.nodes.push(newKgNode);
+    if (nodeType === 'LO') {
+      const courseRoot = kg.nodes.find((n) => n.type === 'Course');
+      if (courseRoot) {
+        kg.edges.push({ source: id, target: courseRoot.id, type: 'DEVELOP', properties: { status: 'approved', confidence: 1 } });
+      }
+    } else if (input.clusterId && kg.nodes.some((n) => n.id === input.clusterId)) {
+      const parent = kg.nodes.find((n) => n.id === input.clusterId);
+      const rel: KnowledgeEdgeType = parent?.type === 'LO' ? 'DEVELOP' : 'PART_OF';
+      kg.edges.push({ source: id, target: input.clusterId, type: rel, properties: { status: 'approved', confidence: 1 } });
+    }
+    return wait({ ...newKgNode });
+  },
+  async updateGraphNode(
+    courseId: string,
+    nodeId: string,
+    input: {
+      name?: string;
+      description?: string;
+      status?: 'approved' | 'draft' | 'pending_review' | 'outside_cluster' | 'proposed';
+      approved?: boolean;
+      lo?: string[];
+      properties?: Record<string, unknown>;
+    },
+  ): Promise<Record<string, unknown>> {
+    const kg = await ensureKnowledgeGraph(courseId);
+    const kgNode = kg.nodes.find((n) => n.id === nodeId);
+    if (kgNode) {
+      if (input.name !== undefined) kgNode.name = input.name.trim();
+      if (input.description !== undefined) kgNode.description = input.description.trim();
+      kgNode.properties = { ...(kgNode.properties ?? {}), ...(input.properties ?? {}) };
+      if (input.status !== undefined) kgNode.properties.status = input.status;
+      if (input.approved !== undefined) {
+        kgNode.properties.approved = input.approved;
+        if (input.approved) kgNode.properties.status = 'approved';
+      }
+      return wait({ ...kgNode });
+    }
+    const graph = courseId === 'CO3093' ? data.computerNetworksTeacherGraph : data.teacherGraph;
+    const cluster = graph.clusters.find((c) => c.id === nodeId);
+    if (cluster) {
+      if (input.name !== undefined) cluster.name = input.name;
+      if (input.approved !== undefined) cluster.approved = input.approved;
+      if (input.lo !== undefined) cluster.lo = [...input.lo];
+      return wait({ ...cluster });
+    }
+    for (const view of clusterViewStore.values()) {
+      const node = view.nodes.find((n) => n.id === nodeId);
+      if (node) {
+        if (input.name !== undefined) node.name = input.name;
+        if (input.status !== undefined && input.status !== 'proposed') node.status = input.status;
+        if (input.lo !== undefined) node.lo = [...input.lo];
+        return wait({ ...node });
+      }
+    }
+    return Promise.reject(new Error('Không tìm thấy node hoặc cụm.'));
+  },
+  async deleteGraphNode(courseId: string, nodeId: string): Promise<void> {
+    const kg = await ensureKnowledgeGraph(courseId);
+    const target = kg.nodes.find((n) => n.id === nodeId);
+    if (target?.type === 'Course') {
+      return Promise.reject(new Error('Không thể xóa node gốc của khóa học.'));
+    }
+    kg.nodes = kg.nodes.filter((n) => n.id !== nodeId);
+    kg.edges = kg.edges.filter((e) => e.source !== nodeId && e.target !== nodeId);
+    return wait(undefined);
+  },
+  async createGraphEdge(
+    courseId: string,
+    input: { fromId: string; toId: string; kind: string; clusterId?: string | null; properties?: Record<string, unknown> },
+  ): Promise<{ from: string; to: string; kind: string; source: string; target: string; type: KnowledgeEdgeType }> {
+    if (input.fromId === input.toId) return Promise.reject(new Error('Không thể nối cạnh tới chính node đó.'));
+    const kg = await ensureKnowledgeGraph(courseId);
+    if (!kg.nodes.some((n) => n.id === input.fromId) || !kg.nodes.some((n) => n.id === input.toId)) {
+      return Promise.reject(new Error('Không tìm thấy node nguồn hoặc node đích trong đồ thị.'));
+    }
+    const edgeType = normalizeKnowledgeEdgeType(input.kind);
+    if (!kg.edges.some((e) => e.source === input.fromId && e.target === input.toId && e.type === edgeType)) {
+      kg.edges.push({
+        source: input.fromId,
+        target: input.toId,
+        type: edgeType,
+        properties: { status: 'approved', confidence: 1, custom: true, ...(input.properties ?? {}) },
+      });
+    }
+    return wait({
+      from: input.fromId,
+      to: input.toId,
+      kind: input.kind,
+      source: input.fromId,
+      target: input.toId,
+      type: edgeType,
+    });
+  },
+  async deleteGraphEdge(
+    courseId: string,
+    input: { fromId: string; toId: string; edgeType?: string | null; clusterId?: string | null },
+  ): Promise<void> {
+    const kg = await ensureKnowledgeGraph(courseId);
+    kg.edges = kg.edges.filter(
+      (e) => !(e.source === input.fromId && e.target === input.toId && (!input.edgeType || e.type === input.edgeType)),
+    );
+    return wait(undefined);
+  },
+  async approveGraphEdge(
+    courseId: string,
+    input: { fromId: string; toId: string; edgeType?: string | null },
+  ): Promise<void> {
+    const kg = await ensureKnowledgeGraph(courseId);
+    kg.edges.forEach((e) => {
+      if (e.source === input.fromId && e.target === input.toId && (!input.edgeType || e.type === input.edgeType)) {
+        e.properties = { ...(e.properties ?? {}), status: 'approved', confidence: 1 };
+      }
+    });
+    return wait(undefined);
+  },
+  async mergeGraphNodes(
+    courseId: string,
+    input: { keepId: string; mergeId: string; clusterId?: string | null },
+  ): Promise<{ id: string }> {
+    if (input.keepId === input.mergeId) return Promise.reject(new Error('Hai node cần gộp phải khác nhau.'));
+    const kg = await ensureKnowledgeGraph(courseId);
+    const keepNode = kg.nodes.find((n) => n.id === input.keepId);
+    const dupNode = kg.nodes.find((n) => n.id === input.mergeId);
+    if (!keepNode || !dupNode) {
+      return Promise.reject(new Error('Không tìm thấy node để gộp.'));
+    }
+    if (dupNode.type === 'Course') {
+      return Promise.reject(new Error('Không thể gộp node gốc của khóa học.'));
+    }
+    const existingMerged = Array.isArray(keepNode.properties?.merged_from)
+      ? (keepNode.properties?.merged_from as string[])
+      : [];
+    keepNode.properties = {
+      ...(keepNode.properties ?? {}),
+      merged_from: Array.from(new Set([...existingMerged, dupNode.name])),
+    };
+    const dedup = new Set<string>();
+    kg.edges = kg.edges
+      .map((e) => ({
+        ...e,
+        source: e.source === input.mergeId ? input.keepId : e.source,
+        target: e.target === input.mergeId ? input.keepId : e.target,
+      }))
+      .filter((e) => {
+        if (e.source === e.target) return false;
+        const key = `${e.source}|${e.target}|${e.type}`;
+        if (dedup.has(key)) return false;
+        dedup.add(key);
+        return true;
+      });
+    kg.nodes = kg.nodes.filter((n) => n.id !== input.mergeId);
+    return wait({ id: input.keepId });
+  },
+
   getReviewQueue: (_courseId: string): Promise<QueueSummary> => wait(data.reviewQueue),
   getHeatSpot: (clusterId?: string): Promise<HeatSpot> => wait(data.heatSpots[clusterId ?? ''] ?? data.heatSpots.pointer, 60),
   getCourseFiles(courseId: string): Promise<CourseFile[]> {

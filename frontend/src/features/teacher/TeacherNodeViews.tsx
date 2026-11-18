@@ -9,25 +9,28 @@ interface ClusterProps {
   cluster: TeacherCluster;
   selected: boolean;
   heat: boolean;
+  readOnly?: boolean;
+  dim?: boolean;
   onSelect: () => void;
   onOpen: () => void;
 }
 
-export function ClusterCard({ cluster, selected, heat, onSelect, onOpen }: ClusterProps) {
+export function ClusterCard({ cluster, selected, heat, readOnly = false, dim = false, onSelect, onOpen }: ClusterProps) {
   const level = heatLevel(cluster.struggle);
+  const showIssue = !readOnly && !!cluster.issue && !heat;
   return (
     <div
-      className={`tc${selected ? ' sel' : ''}${cluster.issue && !heat ? ` issue-${cluster.issue.level}` : ''}${heat ? ` heat-${level}` : ''}`}
+      className={`tc${selected ? ' sel' : ''}${showIssue ? ` issue-${cluster.issue!.level}` : ''}${heat && !readOnly ? ` heat-${level}` : ''}${dim ? ' dim' : ''}`}
       onClick={onSelect}
       onDoubleClick={onOpen}
     >
-      {cluster.issue && !heat && <span className={`tc-flag ${cluster.issue.level}`}>{cluster.issue.label}</span>}
-      {heat && level !== 'low' && <span className={`tc-flag heat-${level}`}>{cluster.struggle}% khó khăn</span>}
+      {showIssue && <span className={`tc-flag ${cluster.issue!.level}`}>{cluster.issue!.label}</span>}
+      {!readOnly && heat && level !== 'low' && <span className={`tc-flag heat-${level}`}>{cluster.struggle}% khó khăn</span>}
       <div className="tc-top"><span className="tc-num">{cluster.index}</span><b>{cluster.name}</b></div>
       <small>{cluster.nodeCount} node</small>
       <div className="tc-bottom">
         {cluster.lo.map((l) => <span key={l} className="lo-chip sm">{l}</span>)}
-        <button className="tc-open" onClick={(e) => { e.stopPropagation(); onOpen(); }}>Mở cụm <ChevronRight size={9} /></button>
+        <button type="button" className="tc-open" onClick={(e) => { e.stopPropagation(); onOpen(); }}>Mở cụm <ChevronRight size={9} /></button>
       </div>
     </div>
   );
@@ -36,20 +39,21 @@ export function ClusterCard({ cluster, selected, heat, onSelect, onOpen }: Clust
 interface NodeProps {
   node: TeacherNode;
   selected: boolean;
+  dim?: boolean;
   onSelect: () => void;
 }
 
-export function ClusterNodeCard({ node, selected, onSelect }: NodeProps) {
+export function ClusterNodeCard({ node, selected, dim = false, onSelect }: NodeProps) {
   if (node.ghost) {
     return (
-      <div className="tn ghost" onClick={onSelect}>
+      <div className={`tn ghost${dim ? ' dim' : ''}`} onClick={onSelect}>
         <b>{node.name}</b>
         <small>từ cụm {node.ghostFrom}</small>
       </div>
     );
   }
   return (
-    <div className={`tn${selected ? ' sel' : ''}${node.status === 'draft' ? ' draft' : ''}`} onClick={onSelect}>
+    <div className={`tn${selected ? ' sel' : ''}${node.status === 'draft' ? ' draft' : ''}${dim ? ' dim' : ''}`} onClick={onSelect}>
       <b>{node.name}</b>
       <small>{teacherNodeStatusLabel(node.status)}</small>
     </div>

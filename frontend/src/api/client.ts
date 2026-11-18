@@ -3,6 +3,7 @@ import type {
   AttendanceSession, ClusterView, ConversationMessage, ConversationSummary,
   CourseFile, CourseOverallGrade, CourseRecommendation, CreateAnnouncementInput, CreateAssignmentInput, CreateAttendanceSessionInput,
   CreateConversationInput, CreateQuizInput, CreateTeacherCourseInput, DashboardData, HeatSpot, HomeSlide,
+  KnowledgeEdgeType, KnowledgeGraphData, KnowledgeNodeType,
   LearningOutcome, LoginHeroStat, MessageContact, MessagePreview, NodeDetail, NodeEditorData,
   NotificationRecord, PdfFile, ProfileDetails, ProfileRecord, QueueSummary, Quiz, QuizAttempt, Role, StudentAttendanceData,
   StudentCourse, StudentGradeItem, StudentGraph, StudentLearningProfile, SubmitAssignmentInput, SubmitQuizInput, TeacherCourse,
@@ -437,10 +438,99 @@ export const api = {
   },
   getNodeDetail: (nodeId: string): Promise<NodeDetail> =>
     invoke(() => mockApi.getNodeDetail(nodeId), `/student/nodes/${encodeURIComponent(nodeId)}`),
+  getKnowledgeGraph: (courseId: string): Promise<KnowledgeGraphData> =>
+    invoke(
+      () => mockApi.getKnowledgeGraph(courseId),
+      `/courses/${encodeURIComponent(courseId)}/knowledge-graph`,
+    ),
+  getCourseGraph: (courseId: string): Promise<TeacherGraphData> =>
+    invoke(() => mockApi.getCourseGraph(courseId), `/courses/${encodeURIComponent(courseId)}/graph`),
+  getCourseClusterView: (courseId: string, clusterId: string): Promise<ClusterView> =>
+    invoke(
+      () => mockApi.getCourseClusterView(courseId, clusterId),
+      `/courses/${encodeURIComponent(courseId)}/clusters/${encodeURIComponent(clusterId)}`,
+    ),
   getTeacherGraph: (courseId: string): Promise<TeacherGraphData> =>
     invoke(() => mockApi.getTeacherGraph(courseId), `/teacher/courses/${encodeURIComponent(courseId)}/graph`),
   getClusterView: (clusterId: string): Promise<ClusterView> =>
     invoke(() => mockApi.getClusterView(clusterId), `/teacher/clusters/${encodeURIComponent(clusterId)}`),
+  createGraphNode: (
+    courseId: string,
+    input: {
+      name: string;
+      nodeType?: KnowledgeNodeType;
+      clusterId?: string | null;
+      description?: string;
+      x?: number;
+      y?: number;
+      lo?: string[];
+      properties?: Record<string, unknown>;
+    },
+  ): Promise<Record<string, unknown>> =>
+    invoke(
+      () => mockApi.createGraphNode(courseId, input),
+      `/teacher/courses/${encodeURIComponent(courseId)}/graph/nodes`,
+      json('POST', input),
+    ),
+  updateGraphNode: (
+    courseId: string,
+    nodeId: string,
+    input: {
+      name?: string;
+      description?: string;
+      status?: 'approved' | 'draft' | 'pending_review' | 'outside_cluster' | 'proposed';
+      approved?: boolean;
+      lo?: string[];
+      properties?: Record<string, unknown>;
+    },
+  ): Promise<Record<string, unknown>> =>
+    invoke(
+      () => mockApi.updateGraphNode(courseId, nodeId, input),
+      `/teacher/courses/${encodeURIComponent(courseId)}/graph/nodes/${encodeURIComponent(nodeId)}`,
+      json('PATCH', input),
+    ),
+  deleteGraphNode: (courseId: string, nodeId: string): Promise<void> =>
+    invoke(
+      () => mockApi.deleteGraphNode(courseId, nodeId),
+      `/teacher/courses/${encodeURIComponent(courseId)}/graph/nodes/${encodeURIComponent(nodeId)}`,
+      { method: 'DELETE' },
+    ),
+  createGraphEdge: (
+    courseId: string,
+    input: { fromId: string; toId: string; kind: KnowledgeEdgeType | 'prereq' | 'related' | 'concept'; clusterId?: string | null; properties?: Record<string, unknown> },
+  ): Promise<{ from: string; to: string; kind: string }> =>
+    invoke(
+      () => mockApi.createGraphEdge(courseId, input),
+      `/teacher/courses/${encodeURIComponent(courseId)}/graph/edges`,
+      json('POST', { fromId: input.fromId, toId: input.toId, kind: input.kind, properties: input.properties ?? {} }),
+    ),
+  deleteGraphEdge: (
+    courseId: string,
+    input: { fromId: string; toId: string; edgeType?: string | null; clusterId?: string | null },
+  ): Promise<void> =>
+    invoke(
+      () => mockApi.deleteGraphEdge(courseId, input),
+      `/teacher/courses/${encodeURIComponent(courseId)}/graph/edges`,
+      json('DELETE', { fromId: input.fromId, toId: input.toId, edgeType: input.edgeType ?? null }),
+    ),
+  approveGraphEdge: (
+    courseId: string,
+    input: { fromId: string; toId: string; edgeType?: string | null },
+  ): Promise<void> =>
+    invoke(
+      () => mockApi.approveGraphEdge(courseId, input),
+      `/teacher/courses/${encodeURIComponent(courseId)}/graph/edges/approve`,
+      json('POST', { fromId: input.fromId, toId: input.toId, edgeType: input.edgeType ?? null }),
+    ),
+  mergeGraphNodes: (
+    courseId: string,
+    input: { keepId: string; mergeId: string; clusterId?: string | null },
+  ): Promise<{ id: string }> =>
+    invoke(
+      () => mockApi.mergeGraphNodes(courseId, input),
+      `/teacher/courses/${encodeURIComponent(courseId)}/graph/nodes/merge`,
+      json('POST', { keepId: input.keepId, mergeId: input.mergeId }),
+    ),
   getReviewQueue: (courseId: string): Promise<QueueSummary> =>
     invoke(() => mockApi.getReviewQueue(courseId), `/teacher/courses/${encodeURIComponent(courseId)}/review-queue`),
   getHeatSpot: (clusterId?: string): Promise<HeatSpot> => {
@@ -461,7 +551,8 @@ export const api = {
     );
   },
   getLoChains: (courseId: string) =>
-    invoke(() => mockApi.getLoChains(courseId), `/teacher/courses/${encodeURIComponent(courseId)}/learning-outcomes/chains`),
+    invoke(() => mockApi.getLoChains(courseId), `/courses/${encodeURIComponent(courseId)}/learning-outcomes/chains`),
   getNodeEditor: (nodeId: string): Promise<NodeEditorData> =>
     invoke(() => mockApi.getNodeEditor(nodeId), `/teacher/nodes/${encodeURIComponent(nodeId)}`),
+
 };

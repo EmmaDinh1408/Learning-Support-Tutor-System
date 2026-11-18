@@ -19,6 +19,8 @@ export default function TeacherNodeEditorPage() {
   const [desc, setDesc] = useState<string | null>(null);
   const [qs, setQs] = useState<Record<string, { bloom?: string; difficulty?: string }>>({});
   const [removed, setRemoved] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   if (!data) return (
     <div className="page">
@@ -34,6 +36,19 @@ export default function TeacherNodeEditorPage() {
   const nameV = name ?? data.name;
   const descV = desc ?? data.description;
 
+  const saveAndBack = async () => {
+    setSaving(true);
+    setSaveError('');
+    try {
+      await api.updateGraphNode(courseId, nodeId, { name: nameV.trim() || data.name, description: descV });
+      back();
+    } catch (reason) {
+      setSaveError(reason instanceof Error ? reason.message : 'Không thể lưu thay đổi node.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="page editor-page">
       <AppHeader showEditToggle />
@@ -48,8 +63,11 @@ export default function TeacherNodeEditorPage() {
           <div className="crumbs xs"><a>{data.course}</a><i>›</i><a>{data.cluster}</a><i>›</i><b>{nameV}</b></div>
           <h1>{nameV}</h1>
         </div>
-        <button className="btn btn-primary" onClick={back}>Lưu và quay lại graph</button>
+        <button className="btn btn-primary" disabled={saving} onClick={() => void saveAndBack()}>
+          {saving ? 'Đang lưu...' : 'Lưu và quay lại graph'}
+        </button>
       </div>
+      {saveError && <p className="form-error graph-error" role="alert">{saveError}</p>}
 
       <div className="editor-tabs">
         {([

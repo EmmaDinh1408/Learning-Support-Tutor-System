@@ -356,3 +356,68 @@ class SendMessageRequest(StrictRequest):
         if not normalized:
             raise ValueError("Tin nhắn không được để trống.")
         return normalized
+
+
+class CreateGraphNodeRequest(StrictRequest):
+    name: str = Field(min_length=1, max_length=160)
+    nodeType: Literal["Course", "LO", "Concept", "Assignment", "Item", "Content"] = "Concept"
+    clusterId: str | None = Field(default=None, max_length=100)
+    description: str = Field(default="", max_length=2000)
+    x: float = 0
+    y: float = 0
+    lo: list[str] = Field(default_factory=list)
+    properties: dict[str, object] = Field(default_factory=dict)
+
+    @field_validator("name", "description")
+    @classmethod
+    def trim_graph_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class UpdateGraphNodeRequest(StrictRequest):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=2000)
+    status: Literal["approved", "draft", "pending_review", "outside_cluster", "proposed"] | None = None
+    approved: bool | None = None
+    x: float | None = None
+    y: float | None = None
+    lo: list[str] | None = None
+    properties: dict[str, object] | None = None
+
+
+class CreateGraphEdgeRequest(StrictRequest):
+    fromId: str = Field(min_length=1, max_length=100)
+    toId: str = Field(min_length=1, max_length=100)
+    kind: Literal[
+        "prereq",
+        "related",
+        "concept",
+        "PREREQUISITE",
+        "PART_OF",
+        "RELATED_TO",
+        "DEVELOP",
+        "EXPLAIN",
+        "ASSESS",
+    ] = "PREREQUISITE"
+    clusterId: str | None = Field(default=None, max_length=100)
+    properties: dict[str, object] = Field(default_factory=dict)
+
+
+class DeleteGraphEdgeRequest(StrictRequest):
+    fromId: str = Field(min_length=1, max_length=100)
+    toId: str = Field(min_length=1, max_length=100)
+    edgeType: str | None = Field(default=None, max_length=40)
+    clusterId: str | None = Field(default=None, max_length=100)
+
+
+class ApproveGraphEdgeRequest(StrictRequest):
+    fromId: str = Field(min_length=1, max_length=100)
+    toId: str = Field(min_length=1, max_length=100)
+    edgeType: str | None = Field(default=None, max_length=40)
+
+
+class MergeGraphNodesRequest(StrictRequest):
+    keepId: str = Field(min_length=1, max_length=100)
+    mergeId: str = Field(min_length=1, max_length=100)
+    clusterId: str | None = Field(default=None, max_length=100)
+

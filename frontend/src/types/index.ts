@@ -707,3 +707,33 @@ export interface NodeEditorData {
   questions: QuestionItem[];
   prerequisites: string[];
 }
+
+export type KnowledgeNodeType = 'Course' | 'LO' | 'Concept' | 'Assignment' | 'Item' | 'Content' | string;
+export type KnowledgeEdgeType =
+  | 'PREREQUISITE'
+  | 'PART_OF'
+  | 'RELATED_TO'
+  | 'DEVELOP'
+  | 'EXPLAIN'
+  | 'ASSESS'
+  | string;
+
+export interface KnowledgeGraphNode {
+  id: string;
+  name: string;
+  type: KnowledgeNodeType;
+  description?: string;
+  properties?: Record<string, unknown>;
+}
+
+export interface KnowledgeGraphEdge {
+  source: string;
+  target: string;
+  type: KnowledgeEdgeType;
+  properties?: Record<string, unknown>;
+}
+
+export interface KnowledgeGraphData {
+  nodes: KnowledgeGraphNode[];
+  edges: KnowledgeGraphEdge[];
+}
