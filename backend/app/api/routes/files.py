@@ -5,8 +5,7 @@ from typing import Annotated, Any
 from urllib.parse import quote
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt import InvalidTokenError
 
@@ -15,6 +14,8 @@ from app.api.routes.courses import _course_access
 from app.core.config import get_settings
 from app.core.security import create_file_download_token, decode_access_token
 from app.infrastructure.neo4j.driver import run_read, run_write
+from app.infrastructure.postgres.db import is_postgres_enabled, pg_conn
+from app.infrastructure.storage.minio_client import delete_object, get_object_bytes, put_object_bytes
 
 router = APIRouter(tags=["Course files"])
 TeacherUser = Annotated[dict[str, Any], Depends(require_roles("teacher"))]
@@ -74,14 +75,10 @@ def upload_course_file(
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Tệp vượt quá giới hạn 50 MB.")
 
     file_id = f"file_{uuid4().hex}"
-    storage_key = f"{uuid4().hex}{extension}"
-    upload_dir = get_settings().upload_dir.resolve()
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    storage_path = upload_dir / storage_key
+    storage_key = f"{course_id}/{uuid4().hex}{extension}"
     mime_type = mimetypes.guess_type(original_name)[0] or "application/octet-stream"
     uploaded_at = datetime.now(timezone.utc).isoformat()
-    with storage_path.open("xb") as stored_file:
-        stored_file.write(content)
+    put_object_bytes(storage_key, content, content_type=mime_type)
 
     persisted = False
     try:
@@ -109,10 +106,19 @@ def upload_course_file(
         )
         if not records:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy khóa học.")
+        if is_postgres_enabled():
+            with pg_conn() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO course_documents (id, course_id, name, mime_type, size_bytes, s3_key, uploaded_by)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (file_id, course_id, original_name, mime_type, len(content), storage_key, str(user["id"])),
+                )
         persisted = True
     finally:
         if not persisted:
-            storage_path.unlink(missing_ok=True)
+            delete_object(storage_key)
     return _file_record(records[0], str(user["id"]))
 
 
@@ -121,7 +127,7 @@ def download_course_file(
     file_id: str,
     token: str | None = Query(default=None),
     bearer_token: Annotated[str | None, Depends(optional_oauth2_scheme)] = None,
-) -> FileResponse:
+) -> Response:
     records = run_read(
         """
         MATCH (file:CourseFile {id: $file_id})-[:IN_COURSE]->(course:Course)
@@ -146,18 +152,18 @@ def download_course_file(
     else:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Cần đăng nhập để tải tệp.")
     storage_key = str(record["file"].get("storageKey", ""))
-    if Path(storage_key).name != storage_key:
+    if not storage_key or ".." in storage_key:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Đường dẫn lưu trữ tệp không hợp lệ.")
-    storage_path = (get_settings().upload_dir / storage_key).resolve()
     try:
-        storage_path.relative_to(get_settings().upload_dir.resolve())
-    except ValueError as error:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Đường dẫn lưu trữ tệp không hợp lệ.") from error
-    if not storage_path.is_file():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nội dung tệp không còn tồn tại.")
-    return FileResponse(
-        storage_path,
+        file_bytes = get_object_bytes(storage_key)
+    except Exception as error:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Nội dung tệp không còn tồn tại.") from error
+    filename = str(record["file"]["name"]).replace('"', "")
+    return Response(
+        content=file_bytes,
         media_type=str(record["file"]["mimeType"]),
-        filename=str(record["file"]["name"]),
-        headers={"X-Content-Type-Options": "nosniff"},
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
     )

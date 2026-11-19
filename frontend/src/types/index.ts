@@ -737,3 +737,87 @@ export interface KnowledgeGraphData {
   nodes: KnowledgeGraphNode[];
   edges: KnowledgeGraphEdge[];
 }
+
+/* ==================== D1–D5 Course Graph Authoring Workflow ==================== */
+
+export type OutlineState = 'DRAFT' | 'OUTLINE_REVIEW' | 'OUTLINE_APPROVED';
+export type ChapterWorkflowState = 'DRAFT' | 'LESSON_REVIEW' | 'LESSON_APPROVED' | 'PUBLISHED';
+export type ReviewDecision = 'PENDING' | 'APPROVE' | 'EDIT' | 'REJECT';
+export type WorkflowJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'BLOCKED' | 'FAILED';
+
+export interface OutlineChapter {
+  id: string;
+  title: string;
+  description?: string;
+  loCodes: string[];
+  state: ChapterWorkflowState;
+  revision: number;
+  documentCount?: number;
+}
+
+export interface OutlineLearningOutcome {
+  code: string;
+  description: string;
+}
+
+export interface CourseOutlineData {
+  chapters: OutlineChapter[];
+  learningOutcomes: OutlineLearningOutcome[];
+}
+
+export interface OutlineDraftResponse {
+  outline: CourseOutlineData;
+  state: OutlineState;
+  revision: number;
+}
+
+export interface WorkflowJobResponse {
+  jobId?: string;
+  status: WorkflowJobStatus;
+  progress: number;
+  result?: {
+    revision?: number;
+    [key: string]: unknown;
+  };
+  error?: string;
+  canResume: boolean;
+  resumeCount: number;
+  maxResumeAttempts: number;
+  resumeBlockedReason?: string;
+}
+
+export interface ChapterLessonItem {
+  id: string;
+  title: string;
+  content: string;
+  sourceRef: string;
+  loCodes: string[];
+  aiComment?: string;
+  hasWarning?: boolean;
+  decision: ReviewDecision;
+  reviewNote?: string;
+}
+
+export interface CourseRelationItem {
+  id: string;
+  sourceId: string;
+  sourceName: string;
+  sourceChapterId: string;
+  targetId: string;
+  targetName: string;
+  targetChapterId: string;
+  relationType: 'PREREQUISITE' | 'PART_OF' | 'RELATED_TO' | 'DEVELOP';
+  sourceRef: string;
+  aiComment?: string;
+  hasWarning?: boolean;
+  decision: ReviewDecision;
+  reviewNote?: string;
+}
+
+export interface PublishCourseResponse {
+  state: 'PUBLISHED' | 'PUBLISHING';
+  revision: number;
+  masterVersion: number;
+  warnings: string[];
+  publicationId?: string;
+}

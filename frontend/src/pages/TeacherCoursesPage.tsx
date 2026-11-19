@@ -63,7 +63,7 @@ export default function TeacherCoursesPage() {
   };
 
   const saveCourse = async () => {
-    if (!code.trim() || !title.trim()) return;
+    if (saving || !code.trim() || !title.trim()) return;
     setSaving(true);
     setActionError('');
     setActionMessage('');
@@ -90,7 +90,7 @@ export default function TeacherCoursesPage() {
           year,
           theme,
         });
-        setCourses((current) => [course, ...current]);
+        setCourses((current) => [course, ...current.filter((item) => item.id !== course.id)]);
         setActionMessage(isVi ? `Đã tạo khóa học ${course.code}.` : `Created course ${course.code}.`);
       }
       setModalOpen(false);

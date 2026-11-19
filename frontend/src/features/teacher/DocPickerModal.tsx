@@ -5,11 +5,11 @@ import type { PdfFile } from '../../types';
 interface Props {
   files: PdfFile[];
   onClose: () => void;
-  onSubmit: (label: string) => void;
+  onSubmit: (label: string, file?: File | null) => void;
 }
 
 export function DocPickerModal({ files, onClose, onSubmit }: Props) {
-  const [tab, setTab] = useState<'course' | 'upload'>('upload');
+  const [tab, setTab] = useState<'course' | 'upload'>(files.length === 0 ? 'upload' : 'course');
   const [selected, setSelected] = useState<string[]>(files[0] ? [files[0].id] : []);
   const [q, setQ] = useState('');
   const [uploaded, setUploaded] = useState<File | null>(null);
@@ -17,12 +17,16 @@ export function DocPickerModal({ files, onClose, onSubmit }: Props) {
 
   const filtered = files.filter((f) => f.name.toLowerCase().includes(q.toLowerCase()));
   const toggle = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
-  const count = tab === 'course' ? selected.length : uploaded ? 1 : 1;
+  const count = tab === 'course' ? selected.length : uploaded ? 1 : 0;
+  const canSubmit = tab === 'upload' ? Boolean(uploaded) : selected.length > 0 && files.length > 0;
 
   const submit = () => {
-    if (tab === 'upload' && uploaded) return onSubmit(`${uploaded.name} - ${(uploaded.size / 1048576).toFixed(1)} MB`);
+    if (!canSubmit) return;
+    if (tab === 'upload' && uploaded) {
+      return onSubmit(`${uploaded.name} - ${(uploaded.size / 1048576).toFixed(1)} MB`, uploaded);
+    }
     const f = files.find((x) => x.id === selected[0]) ?? files[0];
-    onSubmit(`${f.name} - ${f.pages} trang - ${String(f.sizeMb).replace('.', ',')} MB`);
+    onSubmit(f ? `${f.name} - ${f.pages} trang - ${String(f.sizeMb).replace('.', ',')} MB` : 'Tài liệu môn học', null);
   };
 
   return (
@@ -67,7 +71,7 @@ export function DocPickerModal({ files, onClose, onSubmit }: Props) {
           <span className="muted-s">Đã chọn {count} tệp</span>
           <div>
             <button className="btn btn-outline" onClick={onClose}>Hủy</button>
-            <button className="btn btn-primary" onClick={submit}><Sparkles size={12} /> Tạo graph</button>
+            <button className="btn btn-primary" onClick={submit} disabled={!canSubmit}><Sparkles size={12} /> Tạo graph</button>
           </div>
         </div>
       </div>

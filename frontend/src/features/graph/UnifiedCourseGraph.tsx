@@ -1,4 +1,4 @@
-import { FileText, Network, PanelRight } from 'lucide-react';
+import { FileText, Layers, Network, PanelRight } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
@@ -6,6 +6,7 @@ import type { KnowledgeEdgeType, KnowledgeNodeType } from '../../types';
 import { useAsync } from '../common/useAsync';
 import { useLanguage } from '../i18n/LanguageContext';
 import { AppHeader } from '../layout/AppHeader';
+import { CourseAuthoringWizard } from '../teacher/CourseAuthoringWizard';
 import { DocPickerModal } from '../teacher/DocPickerModal';
 import { GenerationProgress } from '../teacher/GenerationProgress';
 import { LoView } from '../teacher/LoView';
@@ -29,7 +30,7 @@ export function UnifiedCourseGraph({ role }: Props) {
   const [picker, setPicker] = useState(false);
   const [fileLabel, setFileLabel] = useState('');
   const [rightOpen, setRightOpen] = useState(true);
-  const [view, setView] = useState<'structure' | 'outcomes'>('structure');
+  const [view, setView] = useState<'structure' | 'outcomes' | 'authoring'>('structure');
   const [actionError, setActionError] = useState('');
   const [actionMessage, setActionMessage] = useState('');
   const [reloadTick, setReloadTick] = useState(0);
@@ -64,16 +65,33 @@ export function UnifiedCourseGraph({ role }: Props) {
 
   const refreshGraph = () => setReloadTick((tick) => tick + 1);
 
-  const startGenerate = (label: string) => {
+  const startGenerate = async (label: string, uploadedFile?: File | null) => {
+    setActionError('');
+    setActionMessage('');
+    if (uploadedFile && canEdit) {
+      try {
+        await api.uploadCourseFile(courseId, uploadedFile);
+      } catch (reason) {
+        setActionError(reason instanceof Error ? reason.message : 'Không thể tải tệp PDF lên khóa học.');
+        return;
+      }
+    }
     setFileLabel(label);
     setPicker(false);
     setPhase('generating');
   };
 
-  const doneGenerating = useCallback(() => {
-    setPhase('ready');
-    setReloadTick((tick) => tick + 1);
-  }, []);
+  const doneGenerating = useCallback(async () => {
+    try {
+      await api.generateKnowledgeGraph(courseId);
+      setActionMessage('AI đã trích xuất đồ thị tri thức từ tài liệu PDF và kiểm tra tính toàn vẹn (Validate Graph Integrity).');
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : 'Không thể khởi tạo đồ thị từ PDF.');
+    } finally {
+      setPhase('ready');
+      setReloadTick((tick) => tick + 1);
+    }
+  }, [courseId]);
 
   const handleAddNode = async (input: { name: string; nodeType: KnowledgeNodeType; parentId?: string | null }) => {
     if (!canEdit) return;
@@ -223,6 +241,12 @@ export function UnifiedCourseGraph({ role }: Props) {
             <button type="button" className={view === 'structure' ? 'on' : ''} onClick={() => setView('structure')}>
               {isVi ? 'Đồ thị tri thức' : 'Knowledge graph'}
             </button>
+            {canEdit && (
+              <button type="button" className={view === 'authoring' ? 'on' : ''} onClick={() => setView('authoring')}>
+                <Layers size={12} style={{ marginRight: 4 }} />
+                {isVi ? 'Dựng đồ thị (D1–D4)' : 'Authoring (D1–D4)'}
+              </button>
+            )}
             <button type="button" className={view === 'outcomes' ? 'on' : ''} onClick={() => setView('outcomes')}>
               {isVi ? 'Chuẩn đầu ra' : 'Learning outcomes'}
             </button>
@@ -278,7 +302,7 @@ export function UnifiedCourseGraph({ role }: Props) {
         <div className="gen-page">
           <GenerationProgress
             fileLabel={fileLabel || (isVi ? 'Tài liệu khóa học' : 'Course material')}
-            onDone={doneGenerating}
+            onDone={() => void doneGenerating()}
             onCancel={() => setPhase('ready')}
             onChangeFile={() => setPicker(true)}
           />
@@ -287,7 +311,18 @@ export function UnifiedCourseGraph({ role }: Props) {
 
       {ready && (
         <div className="graph-body" style={{ flex: 1, minHeight: 0 }}>
-          {view === 'outcomes' ? (
+          {view === 'authoring' && canEdit ? (
+            <div className="graph-stage" style={{ overflowY: 'auto', padding: '18px 24px' }}>
+              <CourseAuthoringWizard
+                courseId={courseId}
+                courseName={courseName}
+                onPublishedGraph={() => {
+                  setView('structure');
+                  refreshGraph();
+                }}
+              />
+            </div>
+          ) : view === 'outcomes' ? (
             <div className="graph-stage">
               <LoView courseId={courseId} />
             </div>
@@ -295,7 +330,7 @@ export function UnifiedCourseGraph({ role }: Props) {
             <div className="graph-stage" style={{ display: 'grid', placeItems: 'center', color: 'var(--muted)' }}>
               Đang tải đồ thị tri thức…
             </div>
-          ) : knowledgeGraph && knowledgeGraph.nodes.length > 0 ? (
+          ) : knowledgeGraph && knowledgeGraph.nodes.some((n) => n.type !== 'Course') ? (
             <KnowledgeGraphCanvas
               courseId={courseId}
               data={knowledgeGraph}
@@ -320,16 +355,21 @@ export function UnifiedCourseGraph({ role }: Props) {
                     <Network size={18} />
                   </span>
                 </div>
-                <h2>Chưa có dữ liệu đồ thị cho môn học này</h2>
+                <h2>Môn học chưa có đồ thị tri thức</h2>
                 <p>
                   {canEdit
-                    ? 'Hãy tải lên tài liệu PDF để AI xây dựng đồ thị kiến thức cho khóa học.'
-                    : 'Giảng viên chưa xuất bản đồ thị tri thức cho môn học này.'}
+                    ? 'Hãy bắt đầu theo quy trình 4 bước (D1: Khung môn học → D2: Bài học theo chương → D3: Quan hệ liên chương → D4: Xuất bản Master Graph) để kiểm soát từng chương ~20 node.'
+                    : 'Giảng viên chưa công bố đồ thị tri thức cho môn học này.'}
                 </p>
                 {canEdit && (
-                  <button type="button" className="btn btn-primary" onClick={() => setPicker(true)}>
-                    <FileText size={12} /> Tạo graph từ tài liệu
-                  </button>
+                  <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+                    <button type="button" className="btn btn-primary" onClick={() => setView('authoring')}>
+                      <Layers size={12} /> Bắt đầu dựng đồ thị (D1–D4)
+                    </button>
+                    <button type="button" className="btn btn-outline" onClick={() => setPicker(true)}>
+                      <FileText size={12} /> Tạo nhanh từ 1 PDF
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -337,8 +377,12 @@ export function UnifiedCourseGraph({ role }: Props) {
         </div>
       )}
 
-      {canEdit && picker && files && (
-        <DocPickerModal files={files} onClose={() => setPicker(false)} onSubmit={startGenerate} />
+      {canEdit && picker && (
+        <DocPickerModal
+          files={files ?? []}
+          onClose={() => setPicker(false)}
+          onSubmit={(label, uploadedFile) => void startGenerate(label, uploadedFile)}
+        />
       )}
     </div>
   );

@@ -2,9 +2,11 @@ from typing import Annotated, Any
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from ulid import ULID
 
 from app.api.dependencies import get_current_user, require_roles
 from app.api.routes.courses import _course_access
+from app.core.config import get_settings
 from app.domain.models.api import (
     ApproveGraphEdgeRequest,
     CreateGraphEdgeRequest,
@@ -13,7 +15,15 @@ from app.domain.models.api import (
     MergeGraphNodesRequest,
     UpdateGraphNodeRequest,
 )
+from app.infrastructure.cache.redis_client import (
+    cache_delete,
+    cache_get_json,
+    cache_set_json,
+    enqueue_extraction_job,
+    is_redis_enabled,
+)
 from app.infrastructure.neo4j.driver import run_read, run_write
+from app.infrastructure.postgres.db import is_postgres_enabled, pg_conn
 
 router = APIRouter(tags=["Learning graph"])
 CurrentUser = Annotated[dict[str, Any], Depends(get_current_user)]
@@ -294,6 +304,9 @@ def _node_type_from_labels(labels: list[str], props: dict[str, Any]) -> str:
 def get_course_knowledge_graph(course_id: str, user: CurrentUser) -> dict[str, Any]:
     """Universal knowledge graph payload ({nodes, edges}) shared by students (read-only) and teachers (editable)."""
     _course_access(course_id, user)
+    cached = cache_get_json(f"g4lms:kg:{course_id}")
+    if cached and isinstance(cached.get("nodes"), list):
+        return cached
     course_rows = run_read(
         """
         MATCH (course:Course {id: $course_id})
@@ -425,7 +438,151 @@ def get_course_knowledge_graph(course_id: str, user: CurrentUser) -> dict[str, A
                 seen_edges.add(key)
                 edges_out.append({"source": node_id, "target": course_id, "type": "DEVELOP", "properties": {}})
 
-    return {"nodes": list(nodes_by_id.values()), "edges": edges_out}
+    # If the course has no LOs or Concepts yet (newly created), return empty graph
+    non_course_nodes = [n for n in nodes_by_id.values() if n["type"] != "Course"]
+    if not non_course_nodes:
+        return {"nodes": [], "edges": []}
+
+    payload = {"nodes": list(nodes_by_id.values()), "edges": edges_out}
+    cache_set_json(f"g4lms:kg:{course_id}", payload, ttl_seconds=300)
+    return payload
+
+
+@router.post("/teacher/courses/{course_id}/knowledge-graph/generate", status_code=status.HTTP_201_CREATED)
+def generate_course_knowledge_graph(
+    course_id: str,
+    user: TeacherUser,
+) -> dict[str, Any]:
+    """Enqueue KG extraction job from uploaded PDF (Redis Queue -> Extraction Worker -> Postgres Outbox -> Neo4j)."""
+    _course_access(course_id, user)
+    course_rows = run_read(
+        "MATCH (c:Course {id: $course_id}) RETURN c.id AS id, coalesce(c.title, c.code, c.id) AS title LIMIT 1",
+        {"course_id": course_id},
+    )
+    if not course_rows:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy khóa học.")
+    course_title = course_rows[0]["title"]
+
+    # When Redis + PostgreSQL hybrid persistence are active, follow the full async Worker + Outbox pipeline
+    if is_redis_enabled() and is_postgres_enabled():
+        doc_row = None
+        with pg_conn() as conn:
+            doc_row = conn.execute(
+                """
+                SELECT id, s3_key FROM course_documents
+                WHERE course_id = %s
+                ORDER BY uploaded_at DESC
+                LIMIT 1
+                """,
+                (course_id,),
+            ).fetchone()
+            job_id = str(ULID())
+            conn.execute(
+                """
+                INSERT INTO kg_extraction_jobs (id, course_id, document_id, status)
+                VALUES (%s, %s, %s, 'queued')
+                """,
+                (job_id, course_id, doc_row["id"] if doc_row else None),
+            )
+
+        job_payload = {
+            "job_id": job_id,
+            "course_id": course_id,
+            "course_title": course_title,
+            "document_id": doc_row["id"] if doc_row else None,
+            "s3_key": doc_row["s3_key"] if doc_row else None,
+        }
+        if get_settings().inline_workers:
+            from app.workers.extraction_worker import process_extraction_job
+            from app.workers.outbox_worker import process_pending_outbox_events
+
+            process_extraction_job(job_payload)
+            process_pending_outbox_events()
+            return get_course_knowledge_graph(course_id, user)
+
+        enqueue_extraction_job(job_payload)
+        return {"jobId": job_id, "status": "queued", "nodes": [], "edges": []}
+
+    # Fallback: direct Neo4j generation when Redis/Postgres are not configured
+    run_write(
+        """
+        MATCH (course:Course {id: $course_id})
+        MERGE (lo1:LearningOutcome {id: $course_id + '.LO1'})
+        SET lo1.name = 'Nắm vững khái niệm nền tảng của ' + $title,
+            lo1.title = 'Nắm vững khái niệm nền tảng của ' + $title,
+            lo1.code = 'L.O.1', lo1.nodeType = 'LO', lo1.sequence = 1, lo1.status = 'approved'
+        MERGE (lo1)-[:IN_COURSE]->(course)
+        MERGE (lo1)-[:DEVELOP]->(course)
+
+        MERGE (lo2:LearningOutcome {id: $course_id + '.LO2'})
+        SET lo2.name = 'Phân tích và vận dụng mô hình trong ' + $title,
+            lo2.title = 'Phân tích và vận dụng mô hình trong ' + $title,
+            lo2.code = 'L.O.2', lo2.nodeType = 'LO', lo2.sequence = 2, lo2.status = 'approved'
+        MERGE (lo2)-[:IN_COURSE]->(course)
+        MERGE (lo2)-[:DEVELOP]->(course)
+
+        MERGE (c1:LearningNode {id: $course_id + '_c1'})
+        SET c1.name = 'Tổng quan & Kiến trúc cơ bản', c1.title = 'Tổng quan & Kiến trúc cơ bản',
+            c1.nodeType = 'Concept', c1.chapter_id = 'ch1', c1.status = 'proposed', c1.sequence = 1
+        MERGE (c1)-[:IN_COURSE]->(course)
+        MERGE (c1)-[d1:DEVELOP]->(lo1)
+        SET d1.status = 'proposed', d1.confidence = 0.86
+
+        MERGE (c2:LearningNode {id: $course_id + '_c2'})
+        SET c2.name = 'Nguyên lý & Thuật toán cốt lõi', c2.title = 'Nguyên lý & Thuật toán cốt lõi',
+            c2.nodeType = 'Concept', c2.chapter_id = 'ch2', c2.status = 'proposed', c2.sequence = 2
+        MERGE (c2)-[:IN_COURSE]->(course)
+        MERGE (c2)-[d2:DEVELOP]->(lo2)
+        SET d2.status = 'proposed', d2.confidence = 0.76
+        MERGE (c1)-[p12:PREREQUISITE]->(c2)
+        SET p12.status = 'proposed', p12.confidence = 0.78, p12.strength = 'hard'
+
+        MERGE (c3:LearningNode {id: $course_id + '_c3'})
+        SET c3.name = 'Ứng dụng & Đánh giá thực nghiệm', c3.title = 'Ứng dụng & Đánh giá thực nghiệm',
+            c3.nodeType = 'Concept', c3.chapter_id = 'ch3', c3.status = 'proposed', c3.sequence = 3
+        MERGE (c3)-[:IN_COURSE]->(course)
+        MERGE (c3)-[d3:DEVELOP]->(lo2)
+        SET d3.status = 'proposed', d3.confidence = 0.74
+        MERGE (c2)-[p23:PREREQUISITE]->(c3)
+        SET p23.status = 'proposed', p23.confidence = 0.75, p23.strength = 'hard'
+        RETURN course.id AS id
+        """,
+        {"course_id": course_id, "title": course_title},
+    )
+    cache_delete(f"g4lms:kg:{course_id}")
+    return get_course_knowledge_graph(course_id, user)
+
+
+@router.get("/teacher/courses/{course_id}/knowledge-graph/jobs/{job_id}")
+def get_kg_extraction_job_status(
+    course_id: str,
+    job_id: str,
+    user: TeacherUser,
+) -> dict[str, Any]:
+    """Poll status of an async PDF -> Knowledge Graph extraction job."""
+    _course_access(course_id, user)
+    if not is_postgres_enabled():
+        return {"jobId": job_id, "status": "completed"}
+    with pg_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT id, course_id, status, error_message, nodes_created, edges_created
+            FROM kg_extraction_jobs
+            WHERE id = %s AND course_id = %s
+            LIMIT 1
+            """,
+            (job_id, course_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tác vụ trích xuất.")
+    return {
+        "jobId": row["id"],
+        "courseId": row["course_id"],
+        "status": row["status"],
+        "errorMessage": row["error_message"],
+        "nodesCreated": row["nodes_created"],
+        "edgesCreated": row["edges_created"],
+    }
 
 
 @router.get("/courses/{course_id}/graph")
@@ -634,6 +791,7 @@ def create_graph_node(
             "extra_props": extra_props,
         },
     )
+    cache_delete(f"g4lms:kg:{course_id}")
     return {
         "id": node_id,
         "name": request.name,
@@ -685,6 +843,7 @@ def update_graph_node(
     )
     if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy node hoặc cụm.")
+    cache_delete(f"g4lms:kg:{course_id}")
     return rows[0]["item"]
 
 
@@ -703,6 +862,7 @@ def delete_graph_node(course_id: str, node_id: str, user: TeacherUser) -> Respon
     )
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy node hoặc cụm.")
+    cache_delete(f"g4lms:kg:{course_id}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -727,6 +887,20 @@ def create_graph_edge(
         "ASSESS": "ASSESS",
     }
     rel_type = rel_map[request.kind]
+    if rel_type == "PREREQUISITE":
+        cycle_rows = run_read(
+            """
+            MATCH (source {id: $from_id}), (target {id: $to_id})
+            MATCH path = (target)-[:REQUIRES|PREREQUISITE*1..25]->(source)
+            RETURN length(path) AS len LIMIT 1
+            """,
+            {"from_id": request.fromId, "to_id": request.toId},
+        )
+        if cycle_rows:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Lỗi toàn vẹn đồ thị (Validate Graph Integrity): Cạnh PREREQUISITE này tạo chu trình vòng!",
+            )
     edge_props = {
         k: v for k, v in (request.properties or {}).items() if isinstance(v, (str, int, float, bool, list))
     }
@@ -751,6 +925,7 @@ def create_graph_edge(
     )
     if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy node nguồn hoặc node đích trong khóa học.")
+    cache_delete(f"g4lms:kg:{course_id}")
     return {
         "from": request.fromId,
         "to": request.toId,
@@ -786,6 +961,7 @@ def delete_graph_edge(
             "edge_type": request.edgeType,
         },
     )
+    cache_delete(f"g4lms:kg:{course_id}")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -815,6 +991,7 @@ def approve_graph_edge(
     )
     if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy cạnh cần duyệt.")
+    cache_delete(f"g4lms:kg:{course_id}")
     return rows[0]
 
 
@@ -857,6 +1034,7 @@ def merge_graph_nodes(
     )
     if not rows:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy node để gộp.")
+    cache_delete(f"g4lms:kg:{course_id}")
     return {"id": request.keepId}
 
 

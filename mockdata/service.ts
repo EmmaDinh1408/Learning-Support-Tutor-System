@@ -1,12 +1,12 @@
 import type {
-  AdminAnnouncementRecord, AdminCourseOption, AdminCourseRecord, AdminEnrollment, AdminStats, AdminStudentOption, AdminUser, Announcement, Assignment, AssignmentSubmissionRecord, AttendanceSession, ClusterView, ConversationMessage, ConversationSummary,
-  CourseFile, CourseOverallGrade, CourseRecommendation, CreateAnnouncementInput, CreateAssignmentInput, CreateAttendanceSessionInput,
+  AdminAnnouncementRecord, AdminCourseOption, AdminCourseRecord, AdminEnrollment, AdminStats, AdminStudentOption, AdminUser, Announcement, Assignment, AssignmentSubmissionRecord, AttendanceSession, ChapterLessonItem, ClusterView, ConversationMessage, ConversationSummary,
+  CourseFile, CourseOutlineData, CourseOverallGrade, CourseRecommendation, CourseRelationItem, CreateAnnouncementInput, CreateAssignmentInput, CreateAttendanceSessionInput,
   CreateConversationInput, CreateQuizInput, CreateTeacherCourseInput, DashboardData, HeatSpot, HomeSlide,
   KnowledgeEdgeType, KnowledgeGraphData, KnowledgeGraphEdge, KnowledgeGraphNode, KnowledgeNodeType,
   LearningOutcome, LoginHeroStat, MessageContact, MessagePreview, NodeDetail, NodeEditorData,
-  NotificationRecord, PdfFile, ProfileDetails, QueueSummary, Quiz, QuizAttempt, Role, StudentAttendanceData,
+  NotificationRecord, OutlineDraftResponse, OutlineState, PdfFile, ProfileDetails, PublishCourseResponse, QueueSummary, Quiz, QuizAttempt, ReviewDecision, Role, StudentAttendanceData,
   StudentCourse, StudentGradeItem, StudentGraph, StudentLearningProfile, SubmitAssignmentInput, SubmitQuizInput, TeacherCourse,
-  TeacherCourseTopic, TeacherGradeRow, TeacherGraphData, UpdateAnnouncementInput, UpdateAssignmentInput, UpdateAttendanceSessionInput, UpdateGradebookRowInput, UpdateTeacherCourseInput, User,
+  TeacherCourseTopic, TeacherGradeRow, TeacherGraphData, UpdateAnnouncementInput, UpdateAssignmentInput, UpdateAttendanceSessionInput, UpdateGradebookRowInput, UpdateTeacherCourseInput, User, WorkflowJobResponse,
 } from '../frontend/src/types';
 import * as data from './fixtures';
 import { quizFixtures } from './quizFixtures';
@@ -19,10 +19,126 @@ import {
 
 const wait = <T,>(value: T, ms = 100): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
+
+function loadStorage<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined' || !window.localStorage) return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveStorage(key: string, value: unknown): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore quota or private mode errors
+  }
+}
+
 const attempts = new Map<string, QuizAttempt>();
 const clusterViewStore = new Map<string, ClusterView>();
-const knowledgeGraphStore = new Map<string, KnowledgeGraphData>();
-const uploadedFiles: CourseFile[] = [];
+
+const rawKg = loadStorage<Record<string, KnowledgeGraphData>>('g4lms.mock.knowledgeGraphs', {});
+const knowledgeGraphStore = new Map<string, KnowledgeGraphData>(Object.entries(rawKg));
+
+function persistKnowledgeGraph(): void {
+  const obj: Record<string, KnowledgeGraphData> = {};
+  for (const [id, kg] of knowledgeGraphStore.entries()) {
+    obj[id] = kg;
+  }
+  saveStorage('g4lms.mock.knowledgeGraphs', obj);
+}
+
+const teacherCoursesStore: TeacherCourse[] = loadStorage<TeacherCourse[]>(
+  'g4lms.mock.teacherCourses',
+  data.teacherCourses.map((c) => ({ ...c })),
+);
+
+function persistTeacherCourses(): void {
+  saveStorage('g4lms.mock.teacherCourses', teacherCoursesStore);
+}
+
+const studentCoursesStore: StudentCourse[] = loadStorage<StudentCourse[]>(
+  'g4lms.mock.studentCourses',
+  data.studentCourses.map((c) => ({ ...c })),
+);
+
+function persistStudentCourses(): void {
+  saveStorage('g4lms.mock.studentCourses', studentCoursesStore);
+}
+
+const uploadedFiles: CourseFile[] = loadStorage<CourseFile[]>('g4lms.mock.uploadedFiles', []);
+
+function persistUploadedFiles(): void {
+  saveStorage('g4lms.mock.uploadedFiles', uploadedFiles);
+}
+
+const pdfFilesStore: PdfFile[] = loadStorage<PdfFile[]>(
+  'g4lms.mock.pdfFiles',
+  data.pdfFiles.map((p) => ({ ...p })),
+);
+
+function persistPdfFiles(): void {
+  saveStorage('g4lms.mock.pdfFiles', pdfFilesStore);
+}
+
+interface AuthoringState {
+  outline: CourseOutlineData;
+  outlineState: OutlineState;
+  outlineRevision: number;
+  lessonsByChapter: Record<string, ChapterLessonItem[]>;
+  relations: CourseRelationItem[];
+  relationRevision: number;
+  masterVersion: number;
+}
+
+interface MockAuthoringJob {
+  kind: 'outline' | 'lesson' | 'relation';
+  courseId: string;
+  chapterId?: string;
+  chapterIds?: string[];
+  idempotencyKey: string;
+  polls: number;
+  status: WorkflowJobResponse['status'];
+  progress: number;
+  canResume: boolean;
+  resumeCount: number;
+  maxResumeAttempts: number;
+  revision: number;
+}
+
+const rawAuthoring = loadStorage<Record<string, AuthoringState>>('g4lms.mock.authoringState', {});
+const authoringStore = new Map<string, AuthoringState>(Object.entries(rawAuthoring));
+const authoringJobs = new Map<string, MockAuthoringJob>();
+
+function persistAuthoring(): void {
+  const obj: Record<string, AuthoringState> = {};
+  for (const [id, st] of authoringStore.entries()) {
+    obj[id] = st;
+  }
+  saveStorage('g4lms.mock.authoringState', obj);
+}
+
+function ensureAuthoringState(courseId: string): AuthoringState {
+  if (!authoringStore.has(courseId)) {
+    authoringStore.set(courseId, {
+      outline: { chapters: [], learningOutcomes: [] },
+      outlineState: 'DRAFT',
+      outlineRevision: 1,
+      lessonsByChapter: {},
+      relations: [],
+      relationRevision: 1,
+      masterVersion: 0,
+    });
+    persistAuthoring();
+  }
+  return authoringStore.get(courseId)!;
+}
 
 function normalizeKnowledgeEdgeType(kind: string): KnowledgeEdgeType {
   if (kind === 'prereq' || kind === 'PREREQUISITE') return 'PREREQUISITE';
@@ -35,8 +151,8 @@ function normalizeKnowledgeEdgeType(kind: string): KnowledgeEdgeType {
 
 function buildFallbackKnowledgeGraph(courseId: string): KnowledgeGraphData {
   const course =
-    data.teacherCourses.find((c) => c.id === courseId) ??
-    data.studentCourses.find((c) => c.id === courseId);
+    teacherCoursesStore.find((c) => c.id === courseId) ??
+    studentCoursesStore.find((c) => c.id === courseId);
   const courseTitle = course ? `${course.title} (${course.code})` : courseId;
   const base = courseId === 'CO3093' ? data.computerNetworksTeacherGraph : data.teacherGraph;
   const nodes: KnowledgeGraphNode[] = [
@@ -211,11 +327,22 @@ function buildFallbackKnowledgeGraph(courseId: string): KnowledgeGraphData {
   return { nodes, edges };
 }
 
-async function ensureKnowledgeGraph(courseId: string): Promise<KnowledgeGraphData> {
-  if (knowledgeGraphStore.has(courseId)) {
-    return knowledgeGraphStore.get(courseId)!;
+async function ensureKnowledgeGraph(courseId: string, forceGenerate = false): Promise<KnowledgeGraphData> {
+  const normId = courseId.trim();
+  if (!forceGenerate && knowledgeGraphStore.has(normId)) {
+    const existing = knowledgeGraphStore.get(normId)!;
+    const course = teacherCoursesStore.find((c) => c.id === normId || c.code.toLowerCase() === normId.toLowerCase());
+    if (course && course.totalNodes === 0) {
+      return { nodes: [], edges: [] };
+    }
+    if (!existing.nodes.some((n) => n.type !== 'Course')) {
+      return { nodes: [], edges: [] };
+    }
+    return existing;
   }
-  if (courseId === 'CO3093' && typeof fetch === 'function') {
+
+  // Pre-configured demo courses
+  if (normId === 'CO3093' && typeof fetch === 'function') {
     try {
       const response = await fetch('/mockdata/prototypeGraph.json');
       if (response.ok) {
@@ -224,16 +351,35 @@ async function ensureKnowledgeGraph(courseId: string): Promise<KnowledgeGraphDat
           nodes: raw.nodes.map((n) => ({ ...n, properties: { ...(n.properties ?? {}) } })),
           edges: raw.edges.map((e) => ({ ...e, properties: { ...(e.properties ?? {}) } })),
         };
-        knowledgeGraphStore.set(courseId, cloned);
+        knowledgeGraphStore.set(normId, cloned);
+        persistKnowledgeGraph();
         return cloned;
       }
     } catch {
-      // Fallback to generated course graph if fixture endpoint is unavailable
+      // Fallback
     }
   }
-  const built = buildFallbackKnowledgeGraph(courseId);
-  knowledgeGraphStore.set(courseId, built);
-  return built;
+
+  if (normId === 'CO2003') {
+    const built = buildFallbackKnowledgeGraph(normId);
+    knowledgeGraphStore.set(normId, built);
+    persistKnowledgeGraph();
+    return built;
+  }
+
+  // If AI generation is explicitly triggered from PDF upload
+  if (forceGenerate) {
+    const built = buildFallbackKnowledgeGraph(normId);
+    knowledgeGraphStore.set(normId, built);
+    persistKnowledgeGraph();
+    return built;
+  }
+
+  // ALL other newly created courses start EMPTY
+  const empty: KnowledgeGraphData = { nodes: [], edges: [] };
+  knowledgeGraphStore.set(normId, empty);
+  persistKnowledgeGraph();
+  return empty;
 }
 
 const adminUsers: AdminUser[] = [
@@ -375,7 +521,7 @@ export const mockApi = {
   }> {
     const students = adminUsers.filter((user) => user.active && user.role === 'student')
       .map(({ id, name, email }) => ({ id, name, email }));
-    const courses = data.teacherCourses.map((course) => ({
+    const courses = teacherCoursesStore.map((course) => ({
       id: course.id,
       code: course.code,
       title: course.title,
@@ -386,7 +532,7 @@ export const mockApi = {
   },
   createAdminEnrollment(input: { studentId: string; courseId: string }): Promise<AdminEnrollment> {
     const student = adminUsers.find((user) => user.id === input.studentId && user.role === 'student' && user.active);
-    const course = data.teacherCourses.find((item) => item.id === input.courseId);
+    const course = teacherCoursesStore.find((item) => item.id === input.courseId);
     if (!student || !course) return Promise.reject(new Error('Không tìm thấy sinh viên hoặc khóa học.'));
     if (adminEnrollments.some((item) => item.studentId === input.studentId && item.courseId === input.courseId)) {
       return Promise.reject(new Error('Sinh viên đã được ghi danh khóa học này.'));
@@ -420,7 +566,7 @@ export const mockApi = {
       students: activeUsers.filter((u) => u.role === 'student').length + teacherRoster.length,
       teachers: teachersList.length,
       admins: activeUsers.filter((u) => u.role === 'admin').length,
-      courses: data.teacherCourses.length,
+      courses: teacherCoursesStore.length,
       enrollments: adminEnrollments.length + teacherRoster.length,
       assignments: assignments.length,
       announcements: adminAnnouncements.length + courseAnnouncements.length,
@@ -430,7 +576,7 @@ export const mockApi = {
   getAdminCourses(): Promise<AdminCourseRecord[]> {
     const defaultTeacher = adminUsers.find((u) => u.role === 'teacher' && u.active);
     return wait(
-      data.teacherCourses.map((course) => ({
+      teacherCoursesStore.map((course) => ({
         id: course.id,
         code: course.code,
         title: course.title,
@@ -457,7 +603,7 @@ export const mockApi = {
     published?: boolean;
     lecturerId?: string | null;
   }): Promise<AdminCourseRecord> {
-    if (data.teacherCourses.some((item) => item.code.toLowerCase() === input.code.toLowerCase())) {
+    if (teacherCoursesStore.some((item) => item.code.toLowerCase() === input.code.toLowerCase())) {
       return Promise.reject(new Error('Khóa học với mã này đã tồn tại.'));
     }
     const teacher = adminUsers.find((u) => u.id === input.lecturerId && u.role === 'teacher');
@@ -475,7 +621,8 @@ export const mockApi = {
       nodesWithContent: 0,
       totalNodes: 0,
     };
-    data.teacherCourses.unshift(created);
+    teacherCoursesStore.unshift(created);
+    persistTeacherCourses();
     return wait({
       id: created.id,
       code: created.code,
@@ -493,7 +640,7 @@ export const mockApi = {
     });
   },
   updateAdminCourse(courseId: string, input: UpdateTeacherCourseInput): Promise<AdminCourseRecord> {
-    const course = data.teacherCourses.find((item) => item.id === courseId);
+    const course = teacherCoursesStore.find((item) => item.id === courseId);
     if (!course) return Promise.reject(new Error('Không tìm thấy khóa học.'));
     if (input.code !== undefined) course.code = input.code;
     if (input.title !== undefined) course.title = input.title;
@@ -503,6 +650,7 @@ export const mockApi = {
     if (input.year !== undefined) course.year = input.year;
     if (input.theme !== undefined) course.theme = input.theme;
     if (input.published !== undefined) course.published = input.published;
+    persistTeacherCourses();
     const teacher = adminUsers.find((u) => u.id === input.lecturerId && u.role === 'teacher');
     return wait({
       id: course.id,
@@ -520,9 +668,10 @@ export const mockApi = {
     });
   },
   deleteAdminCourse(courseId: string): Promise<void> {
-    const index = data.teacherCourses.findIndex((item) => item.id === courseId);
+    const index = teacherCoursesStore.findIndex((item) => item.id === courseId);
     if (index < 0) return Promise.reject(new Error('Không tìm thấy khóa học.'));
-    data.teacherCourses.splice(index, 1);
+    teacherCoursesStore.splice(index, 1);
+    persistTeacherCourses();
     return wait(undefined);
   },
   getAdminAnnouncements(): Promise<AdminAnnouncementRecord[]> {
@@ -549,7 +698,7 @@ export const mockApi = {
   }): Promise<AdminAnnouncementRecord> {
     const now = new Date().toISOString();
     const isGlobal = input.isGlobal ?? !input.courseId;
-    const course = data.teacherCourses.find((c) => c.id === input.courseId);
+    const course = teacherCoursesStore.find((c) => c.id === input.courseId);
     const record: AdminAnnouncementRecord = {
       id: `ann-admin-${Date.now()}`,
       courseId: isGlobal ? null : (input.courseId ?? null),
@@ -673,23 +822,49 @@ export const mockApi = {
     conversation.unreadCount = 0;
     return wait(undefined);
   },
-  getStudentCourses: (): Promise<StudentCourse[]> => wait(data.studentCourses),
-  getTeacherCourses: (): Promise<TeacherCourse[]> => wait(data.teacherCourses),
+  getStudentCourses: (): Promise<StudentCourse[]> => wait(studentCoursesStore.map((c) => ({ ...c }))),
+  getTeacherCourses: (): Promise<TeacherCourse[]> => wait(teacherCoursesStore.map((c) => ({ ...c }))),
   createTeacherCourse(input: CreateTeacherCourseInput): Promise<TeacherCourse> {
+    const code = input.code.trim().toUpperCase();
+    if (teacherCoursesStore.some((item) => item.code.toUpperCase() === code || item.id === code)) {
+      return Promise.reject(new Error('Khóa học với mã này đã tồn tại.'));
+    }
     const course: TeacherCourse = {
       ...input,
-      id: input.code,
+      id: code,
+      code,
       theme: input.theme ?? 'orange',
       students: 0,
       published: false,
       nodesWithContent: 0,
       totalNodes: 0,
     };
-    data.teacherCourses.unshift(course);
-    return wait(course);
+    teacherCoursesStore.unshift(course);
+    persistTeacherCourses();
+
+    const studentCourse: StudentCourse = {
+      id: code,
+      code,
+      title: input.title,
+      description: input.description ?? '',
+      lecturer: 'Nguyễn Văn Hùng',
+      semester: input.semester ?? 'HK1',
+      year: input.year ?? 2026,
+      theme: input.theme ?? 'orange',
+      faculty: input.faculty,
+      progress: 0,
+      gap: 'Chưa có dữ liệu',
+      deadline: 'Tuần này',
+    };
+    if (!studentCoursesStore.some((s) => s.id === code)) {
+      studentCoursesStore.unshift(studentCourse);
+      persistStudentCourses();
+    }
+
+    return wait({ ...course });
   },
   updateTeacherCourse(courseId: string, input: UpdateTeacherCourseInput): Promise<TeacherCourse> {
-    const course = data.teacherCourses.find((item) => item.id === courseId);
+    const course = teacherCoursesStore.find((item) => item.id === courseId);
     if (!course) return Promise.reject(new Error('Không tìm thấy khóa học.'));
     if (input.code !== undefined) course.code = input.code;
     if (input.title !== undefined) course.title = input.title;
@@ -699,12 +874,30 @@ export const mockApi = {
     if (input.year !== undefined) course.year = input.year;
     if (input.theme !== undefined) course.theme = input.theme;
     if (input.published !== undefined) course.published = input.published;
+    persistTeacherCourses();
+
+    const sc = studentCoursesStore.find((s) => s.id === courseId);
+    if (sc) {
+      if (input.code !== undefined) sc.code = input.code;
+      if (input.title !== undefined) sc.title = input.title;
+      if (input.theme !== undefined) sc.theme = input.theme;
+      persistStudentCourses();
+    }
+
     return wait({ ...course });
   },
   deleteTeacherCourse(courseId: string): Promise<void> {
-    const index = data.teacherCourses.findIndex((item) => item.id === courseId);
+    const index = teacherCoursesStore.findIndex((item) => item.id === courseId);
     if (index < 0) return Promise.reject(new Error('Không tìm thấy khóa học.'));
-    data.teacherCourses.splice(index, 1);
+    teacherCoursesStore.splice(index, 1);
+    persistTeacherCourses();
+
+    const sIndex = studentCoursesStore.findIndex((s) => s.id === courseId);
+    if (sIndex >= 0) {
+      studentCoursesStore.splice(sIndex, 1);
+      persistStudentCourses();
+    }
+
     return wait(undefined);
   },
   getCourseSections: (courseId: string) => wait(courseId === 'CO3093' ? networkCourseSections : studentCourseSections),
@@ -1099,6 +1292,31 @@ export const mockApi = {
       edges: kg.edges.map((e) => ({ ...e, properties: { ...(e.properties ?? {}) } })),
     }, 60);
   },
+  async generateKnowledgeGraph(courseId: string): Promise<KnowledgeGraphData> {
+    const generated = await ensureKnowledgeGraph(courseId, true);
+    // Mark nodes and edges as proposed/draft as per FR01 / Bảng 2.2.7
+    generated.nodes.forEach((n) => {
+      if (n.type !== 'Course') {
+        n.properties = { ...(n.properties ?? {}), status: 'proposed' };
+      }
+    });
+    generated.edges.forEach((e) => {
+      e.properties = { ...(e.properties ?? {}), status: 'proposed' };
+    });
+    knowledgeGraphStore.set(courseId, generated);
+    persistKnowledgeGraph();
+    const course = teacherCoursesStore.find((c) => c.id === courseId);
+    if (course) {
+      course.totalNodes = generated.nodes.length;
+      course.nodesWithContent = Math.floor(generated.nodes.length * 0.75);
+      course.pending = generated.edges.filter((e) => e.properties?.status === 'proposed').length;
+      persistTeacherCourses();
+    }
+    return wait({
+      nodes: generated.nodes.map((n) => ({ ...n, properties: { ...(n.properties ?? {}) } })),
+      edges: generated.edges.map((e) => ({ ...e, properties: { ...(e.properties ?? {}) } })),
+    }, 150);
+  },
   getCourseGraph(courseId: string): Promise<TeacherGraphData> {
     const base = courseId === 'CO3093' ? data.computerNetworksTeacherGraph : data.teacherGraph;
     return wait({
@@ -1161,6 +1379,7 @@ export const mockApi = {
       const rel: KnowledgeEdgeType = parent?.type === 'LO' ? 'DEVELOP' : 'PART_OF';
       kg.edges.push({ source: id, target: input.clusterId, type: rel, properties: { status: 'approved', confidence: 1 } });
     }
+    persistKnowledgeGraph();
     return wait({ ...newKgNode });
   },
   async updateGraphNode(
@@ -1186,6 +1405,7 @@ export const mockApi = {
         kgNode.properties.approved = input.approved;
         if (input.approved) kgNode.properties.status = 'approved';
       }
+      persistKnowledgeGraph();
       return wait({ ...kgNode });
     }
     const graph = courseId === 'CO3093' ? data.computerNetworksTeacherGraph : data.teacherGraph;
@@ -1215,6 +1435,7 @@ export const mockApi = {
     }
     kg.nodes = kg.nodes.filter((n) => n.id !== nodeId);
     kg.edges = kg.edges.filter((e) => e.source !== nodeId && e.target !== nodeId);
+    persistKnowledgeGraph();
     return wait(undefined);
   },
   async createGraphEdge(
@@ -1227,6 +1448,25 @@ export const mockApi = {
       return Promise.reject(new Error('Không tìm thấy node nguồn hoặc node đích trong đồ thị.'));
     }
     const edgeType = normalizeKnowledgeEdgeType(input.kind);
+    if (edgeType === 'PREREQUISITE') {
+      // Validate Graph Integrity (Bảng 2.2.10): forbid cycles on PREREQUISITE edges
+      const visited = new Set<string>([input.toId]);
+      const stack = [input.toId];
+      while (stack.length) {
+        const cur = stack.pop()!;
+        if (cur === input.fromId) {
+          return Promise.reject(
+            new Error('Lỗi toàn vẹn đồ thị (Validate Graph Integrity): Cạnh PREREQUISITE này tạo chu trình vòng!'),
+          );
+        }
+        for (const e of kg.edges) {
+          if (e.type === 'PREREQUISITE' && e.source === cur && !visited.has(e.target)) {
+            visited.add(e.target);
+            stack.push(e.target);
+          }
+        }
+      }
+    }
     if (!kg.edges.some((e) => e.source === input.fromId && e.target === input.toId && e.type === edgeType)) {
       kg.edges.push({
         source: input.fromId,
@@ -1235,6 +1475,7 @@ export const mockApi = {
         properties: { status: 'approved', confidence: 1, custom: true, ...(input.properties ?? {}) },
       });
     }
+    persistKnowledgeGraph();
     return wait({
       from: input.fromId,
       to: input.toId,
@@ -1252,6 +1493,7 @@ export const mockApi = {
     kg.edges = kg.edges.filter(
       (e) => !(e.source === input.fromId && e.target === input.toId && (!input.edgeType || e.type === input.edgeType)),
     );
+    persistKnowledgeGraph();
     return wait(undefined);
   },
   async approveGraphEdge(
@@ -1264,6 +1506,7 @@ export const mockApi = {
         e.properties = { ...(e.properties ?? {}), status: 'approved', confidence: 1 };
       }
     });
+    persistKnowledgeGraph();
     return wait(undefined);
   },
   async mergeGraphNodes(
@@ -1302,13 +1545,14 @@ export const mockApi = {
         return true;
       });
     kg.nodes = kg.nodes.filter((n) => n.id !== input.mergeId);
+    persistKnowledgeGraph();
     return wait({ id: input.keepId });
   },
 
   getReviewQueue: (_courseId: string): Promise<QueueSummary> => wait(data.reviewQueue),
   getHeatSpot: (clusterId?: string): Promise<HeatSpot> => wait(data.heatSpots[clusterId ?? ''] ?? data.heatSpots.pointer, 60),
   getCourseFiles(courseId: string): Promise<CourseFile[]> {
-    const saved = data.pdfFiles
+    const saved = pdfFilesStore
       .filter((file) => file.courseId === courseId)
       .map((file) => ({
         id: file.id,
@@ -1336,18 +1580,553 @@ export const mockApi = {
       uploadedAt,
     };
     uploadedFiles.unshift(item);
+    persistUploadedFiles();
     if (item.mimeType === 'application/pdf' || /\.pdf$/i.test(file.name)) {
-      data.pdfFiles.unshift({
+      const pdfItem: PdfFile = {
         ...item,
         pages: 0,
         sizeMb: Number((file.size / 1048576).toFixed(1)),
         date: new Intl.DateTimeFormat('vi-VN').format(new Date(uploadedAt)),
-      });
+      };
+      pdfFilesStore.unshift(pdfItem);
+      persistPdfFiles();
     }
     return wait(item);
   },
   getCoursePdfs: (courseId: string): Promise<PdfFile[]> =>
-    wait(data.pdfFiles.filter((file) => file.courseId === courseId)),
+    wait(pdfFilesStore.filter((file) => file.courseId === courseId)),
   getLoChains: (_courseId: string) => wait(data.loChains),
   getNodeEditor: (nodeId: string): Promise<NodeEditorData> => wait(data.buildNodeEditor(nodeId)),
+
+  /* ==================== D1–D5 Authoring Workflow Mock ==================== */
+  async uploadCourseSyllabus(courseId: string, file: File): Promise<{ syllabusId: string }> {
+    await this.uploadCourseFile(courseId, file);
+    return wait({ syllabusId: `syl-${courseId}-${Date.now()}` }, 120);
+  },
+  createOutlineJob(courseId: string, _syllabusId: string, idempotencyKey: string): Promise<{ jobId: string; status: string }> {
+    const jobId = `job-outline-${courseId}-${Date.now()}`;
+    const state = ensureAuthoringState(courseId);
+    authoringJobs.set(jobId, {
+      kind: 'outline',
+      courseId,
+      idempotencyKey,
+      polls: 0,
+      status: 'QUEUED',
+      progress: 10,
+      canResume: true,
+      resumeCount: 0,
+      maxResumeAttempts: 3,
+      revision: state.outlineRevision,
+    });
+    persistAuthoring();
+    return wait({ jobId, status: 'QUEUED' }, 80);
+  },
+  getOutlineDraft(courseId: string): Promise<OutlineDraftResponse> {
+    const state = ensureAuthoringState(courseId);
+    return wait({
+      outline: JSON.parse(JSON.stringify(state.outline)) as CourseOutlineData,
+      state: state.outlineState,
+      revision: state.outlineRevision,
+    });
+  },
+  saveOutlineDraft(courseId: string, outline: CourseOutlineData, expectedRevision: number): Promise<OutlineDraftResponse> {
+    const state = ensureAuthoringState(courseId);
+    if (state.outlineRevision !== expectedRevision) {
+      return Promise.reject(new Error(`409: Xung đột phiên bản khung môn học (expected ${expectedRevision}, current ${state.outlineRevision}).`));
+    }
+    state.outline = JSON.parse(JSON.stringify(outline)) as CourseOutlineData;
+    state.outlineRevision += 1;
+    persistAuthoring();
+    return wait({
+      outline: JSON.parse(JSON.stringify(state.outline)) as CourseOutlineData,
+      state: state.outlineState,
+      revision: state.outlineRevision,
+    });
+  },
+  approveOutline(courseId: string, expectedRevision: number): Promise<{ state: 'OUTLINE_APPROVED'; revision: number }> {
+    const state = ensureAuthoringState(courseId);
+    if (state.outlineRevision !== expectedRevision) {
+      return Promise.reject(new Error('409: Phiên bản khung môn học đã thay đổi, vui lòng tải lại.'));
+    }
+    if (!state.outline.chapters.length || !state.outline.learningOutcomes.length) {
+      return Promise.reject(new Error('422: Khung môn học phải có ít nhất 1 chương và 1 chuẩn đầu ra (LO).'));
+    }
+    state.outlineState = 'OUTLINE_APPROVED';
+    state.outlineRevision += 1;
+    persistAuthoring();
+    return wait({ state: 'OUTLINE_APPROVED', revision: state.outlineRevision });
+  },
+
+  reopenChapter(courseId: string, chapterId: string, expectedRevision: number): Promise<{ draftId: string; state: 'DRAFT'; revision: number }> {
+    const state = ensureAuthoringState(courseId);
+    const ch = state.outline.chapters.find((c) => c.id === chapterId);
+    if (!ch) return Promise.reject(new Error('Không tìm thấy chương.'));
+    if (ch.revision !== expectedRevision) {
+      return Promise.reject(new Error('409: Xung đột phiên bản chương.'));
+    }
+    ch.state = 'DRAFT';
+    ch.revision += 1;
+    persistAuthoring();
+    return wait({ draftId: `draft-${chapterId}-${ch.revision}`, state: 'DRAFT', revision: ch.revision });
+  },
+  async uploadChapterDocument(courseId: string, chapterId: string, file: File): Promise<{ documentId: string; revision: number }> {
+    const state = ensureAuthoringState(courseId);
+    if (state.outlineState !== 'OUTLINE_APPROVED') {
+      return Promise.reject(new Error('409 OUTLINE_NOT_APPROVED: Cần duyệt Khung môn học (D1) trước khi gắn tài liệu chương.'));
+    }
+    const ch = state.outline.chapters.find((c) => c.id === chapterId);
+    if (!ch) return Promise.reject(new Error('Không tìm thấy chương.'));
+    if (ch.state === 'PUBLISHED') {
+      return Promise.reject(new Error('409 REOPEN_REQUIRED: Chương đã xuất bản, cần Mở lại (Reopen) trước khi tải tài liệu mới.'));
+    }
+    const uploaded = await this.uploadCourseFile(courseId, file);
+    ch.documentCount = (ch.documentCount ?? 0) + 1;
+    ch.revision += 1;
+    persistAuthoring();
+    return wait({ documentId: uploaded.id, revision: ch.revision }, 80);
+  },
+  createLessonJob(courseId: string, chapterId: string, expectedRevision: number, idempotencyKey: string): Promise<{ jobId: string; status: string }> {
+    const state = ensureAuthoringState(courseId);
+    if (state.outlineState !== 'OUTLINE_APPROVED') {
+      return Promise.reject(new Error('409 OUTLINE_NOT_APPROVED: Khung môn học chưa được duyệt.'));
+    }
+    const ch = state.outline.chapters.find((c) => c.id === chapterId);
+    if (!ch) return Promise.reject(new Error('Không tìm thấy chương.'));
+    if (ch.revision !== expectedRevision) {
+      return Promise.reject(new Error('409: Revision của chương đã lệch, vui lòng làm mới.'));
+    }
+    const jobId = `job-lesson-${courseId}-${chapterId}-${Date.now()}`;
+    authoringJobs.set(jobId, {
+      kind: 'lesson',
+      courseId,
+      chapterId,
+      idempotencyKey,
+      polls: 0,
+      status: 'QUEUED',
+      progress: 15,
+      canResume: true,
+      resumeCount: 0,
+      maxResumeAttempts: 3,
+      revision: ch.revision,
+    });
+    persistAuthoring();
+    return wait({ jobId, status: 'QUEUED' }, 80);
+  },
+  getChapterLessons(
+    courseId: string,
+    chapterId: string,
+    cursor?: string | null,
+    limit = 20,
+  ): Promise<{ items: ChapterLessonItem[]; nextCursor: string | null; revision: number }> {
+    const state = ensureAuthoringState(courseId);
+    const ch = state.outline.chapters.find((c) => c.id === chapterId);
+    const list = state.lessonsByChapter[chapterId] ?? [];
+    const offset = cursor ? Number(cursor) || 0 : 0;
+    const slice = list.slice(offset, offset + limit);
+    const nextCursor = offset + limit < list.length ? String(offset + limit) : null;
+    return wait({ items: slice.map((item) => ({ ...item })), nextCursor, revision: ch?.revision ?? 1 }, 60);
+  },
+  reviewChapterLesson(
+    courseId: string,
+    chapterId: string,
+    lessonId: string,
+    input: { decision: ReviewDecision; changes?: Partial<ChapterLessonItem>; reviewNote?: string; expectedRevision: number },
+  ): Promise<{ lesson: ChapterLessonItem; revision: number }> {
+    const state = ensureAuthoringState(courseId);
+    const ch = state.outline.chapters.find((c) => c.id === chapterId);
+    if (!ch) return Promise.reject(new Error('Không tìm thấy chương.'));
+    if (ch.revision !== input.expectedRevision) {
+      return Promise.reject(new Error('409: Revision chương đã thay đổi.'));
+    }
+    const list = state.lessonsByChapter[chapterId] ?? [];
+    const target = list.find((l) => l.id === lessonId);
+    if (!target) return Promise.reject(new Error('Không tìm thấy bài học.'));
+    if (!['APPROVE', 'EDIT', 'REJECT', 'PENDING'].includes(input.decision)) {
+      return Promise.reject(new Error('422: Quyết định duyệt không hợp lệ.'));
+    }
+    target.decision = input.decision;
+    if (input.reviewNote !== undefined) target.reviewNote = input.reviewNote;
+    if (input.changes) {
+      if (input.changes.title !== undefined) target.title = input.changes.title;
+      if (input.changes.content !== undefined) target.content = input.changes.content;
+    }
+    ch.revision += 1;
+    persistAuthoring();
+    return wait({ lesson: { ...target }, revision: ch.revision }, 50);
+  },
+  batchReviewChapterLessons(
+    courseId: string,
+    chapterId: string,
+    input: {
+      items: Array<{ lessonId: string; decision: ReviewDecision; changes?: Partial<ChapterLessonItem>; reviewNote?: string }>;
+      expectedRevision: number;
+    },
+  ): Promise<{ updatedCount: number; revision: number }> {
+    const state = ensureAuthoringState(courseId);
+    const ch = state.outline.chapters.find((c) => c.id === chapterId);
+    if (!ch) return Promise.reject(new Error('Không tìm thấy chương.'));
+    if (ch.revision !== input.expectedRevision) {
+      return Promise.reject(new Error('409: Revision chương đã thay đổi.'));
+    }
+    const list = state.lessonsByChapter[chapterId] ?? [];
+    let updatedCount = 0;
+    for (const item of input.items) {
+      const target = list.find((l) => l.id === item.lessonId);
+      if (target) {
+        target.decision = item.decision;
+        if (item.reviewNote !== undefined) target.reviewNote = item.reviewNote;
+        updatedCount += 1;
+      }
+    }
+    ch.revision += 1;
+    persistAuthoring();
+    return wait({ updatedCount, revision: ch.revision }, 60);
+  },
+  approveChapterLessons(courseId: string, chapterId: string, expectedRevision: number): Promise<{ state: 'LESSON_APPROVED'; revision: number }> {
+    const state = ensureAuthoringState(courseId);
+    const ch = state.outline.chapters.find((c) => c.id === chapterId);
+    if (!ch) return Promise.reject(new Error('Không tìm thấy chương.'));
+    if (ch.revision !== expectedRevision) {
+      return Promise.reject(new Error('409: Revision chương đã thay đổi.'));
+    }
+    const list = state.lessonsByChapter[chapterId] ?? [];
+    if (!list.length || list.some((l) => l.decision === 'PENDING')) {
+      return Promise.reject(new Error('422: Mọi bài học trong chương phải có quyết định (APPROVE / EDIT / REJECT) trước khi duyệt.'));
+    }
+    ch.state = 'LESSON_APPROVED';
+    ch.revision += 1;
+    persistAuthoring();
+    return wait({ state: 'LESSON_APPROVED', revision: ch.revision });
+  },
+  discardChapterLessons(courseId: string, chapterId: string, expectedRevision: number): Promise<{ state: 'DRAFT'; revision: number }> {
+    const state = ensureAuthoringState(courseId);
+    const ch = state.outline.chapters.find((c) => c.id === chapterId);
+    if (!ch) return Promise.reject(new Error('Không tìm thấy chương.'));
+    if (ch.revision !== expectedRevision) {
+      return Promise.reject(new Error('409: Revision chương đã thay đổi.'));
+    }
+    state.lessonsByChapter[chapterId] = [];
+    ch.state = 'DRAFT';
+    ch.revision += 1;
+    persistAuthoring();
+    return wait({ state: 'DRAFT', revision: ch.revision });
+  },
+
+  createRelationJob(
+    courseId: string,
+    chapterIds: string[],
+    expectedRevision: number,
+    idempotencyKey: string,
+  ): Promise<{ jobId: string; status: string }> {
+    const state = ensureAuthoringState(courseId);
+    const uniqueIds = Array.from(new Set(chapterIds));
+    if (uniqueIds.length < 2) {
+      return Promise.reject(new Error('422 MIN_TWO_CHAPTERS_REQUIRED: Cần chọn ít nhất 2 chương đã duyệt để sinh quan hệ liên chương.'));
+    }
+    const unapproved = uniqueIds.filter((cid) => {
+      const ch = state.outline.chapters.find((c) => c.id === cid);
+      return !ch || (ch.state !== 'LESSON_APPROVED' && ch.state !== 'PUBLISHED');
+    });
+    if (unapproved.length) {
+      return Promise.reject(new Error('409: Tất cả các chương được chọn phải ở trạng thái LESSON_APPROVED.'));
+    }
+    if (state.relationRevision !== expectedRevision) {
+      return Promise.reject(new Error('409: Revision quan hệ đã thay đổi.'));
+    }
+    const jobId = `job-relation-${courseId}-${Date.now()}`;
+    authoringJobs.set(jobId, {
+      kind: 'relation',
+      courseId,
+      chapterIds: uniqueIds,
+      idempotencyKey,
+      polls: 0,
+      status: 'QUEUED',
+      progress: 20,
+      canResume: true,
+      resumeCount: 0,
+      maxResumeAttempts: 3,
+      revision: state.relationRevision,
+    });
+    persistAuthoring();
+    return wait({ jobId, status: 'QUEUED' }, 80);
+  },
+  getCourseRelations(
+    courseId: string,
+    cursor?: string | null,
+    limit = 20,
+  ): Promise<{ items: CourseRelationItem[]; nextCursor: string | null; revision: number }> {
+    const state = ensureAuthoringState(courseId);
+    const offset = cursor ? Number(cursor) || 0 : 0;
+    const slice = state.relations.slice(offset, offset + limit);
+    const nextCursor = offset + limit < state.relations.length ? String(offset + limit) : null;
+    return wait({ items: slice.map((r) => ({ ...r })), nextCursor, revision: state.relationRevision }, 60);
+  },
+  reviewCourseRelation(
+    courseId: string,
+    relationId: string,
+    input: { decision: ReviewDecision; changes?: Partial<CourseRelationItem>; reviewNote?: string; expectedRevision: number },
+  ): Promise<{ relation: CourseRelationItem; revision: number }> {
+    const state = ensureAuthoringState(courseId);
+    if (state.relationRevision !== input.expectedRevision) {
+      return Promise.reject(new Error('409: Revision quan hệ đã thay đổi.'));
+    }
+    const target = state.relations.find((r) => r.id === relationId);
+    if (!target) return Promise.reject(new Error('Không tìm thấy quan hệ.'));
+    target.decision = input.decision;
+    if (input.reviewNote !== undefined) target.reviewNote = input.reviewNote;
+    if (input.changes?.relationType) target.relationType = input.changes.relationType;
+    state.relationRevision += 1;
+    persistAuthoring();
+    return wait({ relation: { ...target }, revision: state.relationRevision }, 50);
+  },
+  batchReviewCourseRelations(
+    courseId: string,
+    input: {
+      items: Array<{ relationId: string; decision: ReviewDecision; changes?: Partial<CourseRelationItem>; reviewNote?: string }>;
+      expectedRevision: number;
+    },
+  ): Promise<{ updatedCount: number; revision: number }> {
+    const state = ensureAuthoringState(courseId);
+    if (state.relationRevision !== input.expectedRevision) {
+      return Promise.reject(new Error('409: Revision quan hệ đã thay đổi.'));
+    }
+    let updatedCount = 0;
+    for (const item of input.items) {
+      const target = state.relations.find((r) => r.id === item.relationId);
+      if (target) {
+        target.decision = item.decision;
+        if (item.reviewNote !== undefined) target.reviewNote = item.reviewNote;
+        updatedCount += 1;
+      }
+    }
+    state.relationRevision += 1;
+    persistAuthoring();
+    return wait({ updatedCount, revision: state.relationRevision }, 60);
+  },
+  discardCourseRelations(courseId: string, expectedRevision: number): Promise<{ revision: number }> {
+    const state = ensureAuthoringState(courseId);
+    if (state.relationRevision !== expectedRevision) {
+      return Promise.reject(new Error('409: Revision quan hệ đã thay đổi.'));
+    }
+    state.relations = [];
+    state.relationRevision += 1;
+    persistAuthoring();
+    return wait({ revision: state.relationRevision });
+  },
+
+  publishCourseGraph(
+    courseId: string,
+    expectedRevision: number,
+    expectedMasterVersion: number,
+    _idempotencyKey: string,
+  ): Promise<PublishCourseResponse> {
+    const state = ensureAuthoringState(courseId);
+    if (state.relationRevision !== expectedRevision || state.masterVersion !== expectedMasterVersion) {
+      return Promise.reject(new Error('409: Phiên bản đồ thị hoặc masterVersion đã thay đổi.'));
+    }
+    const approvedChapters = state.outline.chapters.filter((c) => c.state === 'LESSON_APPROVED' || c.state === 'PUBLISHED');
+    if (state.outlineState !== 'OUTLINE_APPROVED' || approvedChapters.length === 0) {
+      return Promise.reject(new Error('422: Cần duyệt khung môn học và ít nhất 1 chương trước khi xuất bản Master Graph.'));
+    }
+    if (state.relations.some((r) => r.decision === 'PENDING')) {
+      return Promise.reject(new Error('422: Còn quan hệ liên chương chưa được duyệt (PENDING).'));
+    }
+
+    const course = teacherCoursesStore.find((c) => c.id === courseId);
+    const nodes: KnowledgeGraphNode[] = [
+      {
+        id: courseId,
+        name: course ? `${course.title} (${course.code})` : courseId,
+        type: 'Course',
+        description: `Master Graph v${state.masterVersion + 1}`,
+        properties: { code: course?.code ?? courseId },
+      },
+    ];
+    const edges: KnowledgeGraphEdge[] = [];
+
+    for (const lo of state.outline.learningOutcomes) {
+      const loId = `${courseId}.${lo.code.replace(/\./g, '')}`;
+      nodes.push({ id: loId, name: `${lo.code}: ${lo.description}`, type: 'LO', properties: { code: lo.code, status: 'approved' } });
+      edges.push({ source: loId, target: courseId, type: 'DEVELOP', properties: { status: 'approved' } });
+    }
+
+    for (const ch of approvedChapters) {
+      ch.state = 'PUBLISHED';
+      const lessons = (state.lessonsByChapter[ch.id] ?? []).filter((l) => l.decision !== 'REJECT');
+      lessons.forEach((l, idx) => {
+        nodes.push({
+          id: l.id,
+          name: l.title,
+          type: 'Concept',
+          description: l.content,
+          properties: { chapter_id: ch.id, status: 'approved', sourceRef: l.sourceRef },
+        });
+        const loCode = l.loCodes[0] ?? state.outline.learningOutcomes[0]?.code;
+        if (loCode) {
+          const loId = `${courseId}.${loCode.replace(/\./g, '')}`;
+          edges.push({ source: l.id, target: loId, type: 'DEVELOP', properties: { status: 'approved' } });
+        }
+        if (idx > 0) {
+          edges.push({ source: lessons[idx - 1].id, target: l.id, type: 'PREREQUISITE', properties: { status: 'approved' } });
+        }
+      });
+    }
+
+    for (const rel of state.relations.filter((r) => r.decision !== 'REJECT')) {
+      edges.push({
+        source: rel.sourceId,
+        target: rel.targetId,
+        type: rel.relationType,
+        properties: { status: 'approved', sourceRef: rel.sourceRef },
+      });
+    }
+
+    knowledgeGraphStore.set(courseId, { nodes, edges });
+    persistKnowledgeGraph();
+    if (course) {
+      course.totalNodes = nodes.length;
+      course.nodesWithContent = nodes.length;
+      course.published = true;
+      course.pending = 0;
+      persistTeacherCourses();
+    }
+
+    state.masterVersion += 1;
+    state.relationRevision += 1;
+    persistAuthoring();
+    return wait({
+      state: 'PUBLISHED',
+      revision: state.relationRevision,
+      masterVersion: state.masterVersion,
+      warnings: [],
+    });
+  },
+  recoverCoursePublish(courseId: string, _publicationId: string): Promise<PublishCourseResponse> {
+    const state = ensureAuthoringState(courseId);
+    return wait({
+      state: 'PUBLISHED',
+      revision: state.relationRevision,
+      masterVersion: state.masterVersion,
+      warnings: [],
+    });
+  },
+
+  getWorkflowJob(jobId: string): Promise<WorkflowJobResponse> {
+    const job = authoringJobs.get(jobId);
+    if (!job) return Promise.reject(new Error('Không tìm thấy job.'));
+    job.polls += 1;
+    if (job.polls === 1) {
+      job.status = 'RUNNING';
+      job.progress = 55;
+    } else if (job.status !== 'SUCCEEDED') {
+      job.status = 'SUCCEEDED';
+      job.progress = 100;
+      const state = ensureAuthoringState(job.courseId);
+      if (job.kind === 'outline') {
+        const course = teacherCoursesStore.find((c) => c.id === job.courseId);
+        const title = course?.title ?? job.courseId;
+        state.outline = {
+          learningOutcomes: [
+            { code: 'L.O.1', description: `Nắm vững nền tảng lý thuyết của ${title}` },
+            { code: 'L.O.2', description: `Phân tích và vận dụng mô hình trong ${title}` },
+          ],
+          chapters: [
+            { id: 'ch1', title: 'Chương 1: Tổng quan & Kiến trúc cơ bản', loCodes: ['L.O.1'], state: 'DRAFT', revision: 1, documentCount: 0 },
+            { id: 'ch2', title: 'Chương 2: Nguyên lý & Thuật toán cốt lõi', loCodes: ['L.O.1', 'L.O.2'], state: 'DRAFT', revision: 1, documentCount: 0 },
+            { id: 'ch3', title: 'Chương 3: Ứng dụng & Đánh giá hệ thống', loCodes: ['L.O.2'], state: 'DRAFT', revision: 1, documentCount: 0 },
+          ],
+        };
+        state.outlineState = 'OUTLINE_REVIEW';
+        state.outlineRevision += 1;
+        job.revision = state.outlineRevision;
+      } else if (job.kind === 'lesson' && job.chapterId) {
+        const ch = state.outline.chapters.find((c) => c.id === job.chapterId);
+        const chTitle = ch?.title ?? job.chapterId;
+        state.lessonsByChapter[job.chapterId] = [
+          {
+            id: `${job.courseId}_${job.chapterId}_l1`,
+            title: `Khái niệm nhập môn - ${chTitle}`,
+            content: `Định nghĩa cốt lõi, mô hình và ví dụ minh họa trích xuất từ tài liệu ${chTitle}.`,
+            sourceRef: 'Slide tr. 3-8',
+            loCodes: ch?.loCodes ?? ['L.O.1'],
+            aiComment: 'AI đã kiểm tra lại: khớp 96% với tài liệu chương và L.O.1.',
+            hasWarning: false,
+            decision: 'PENDING',
+          },
+          {
+            id: `${job.courseId}_${job.chapterId}_l2`,
+            title: `Cơ chế hoạt động & Phân tích - ${chTitle}`,
+            content: `Phân tích cơ chế vận hành, độ phức tạp và các trường hợp biên trong ${chTitle}.`,
+            sourceRef: 'Slide tr. 9-16',
+            loCodes: ch?.loCodes ?? ['L.O.1'],
+            aiComment: 'AI nghi ngờ: Phần ví dụ thực nghiệm cần giảng viên rà soát thêm.',
+            hasWarning: true,
+            decision: 'PENDING',
+          },
+          {
+            id: `${job.courseId}_${job.chapterId}_l3`,
+            title: `Bài tập vận dụng - ${chTitle}`,
+            content: `Tổng hợp câu hỏi ôn tập và tình huống áp dụng cho ${chTitle}.`,
+            sourceRef: 'Slide tr. 17-22',
+            loCodes: ch?.loCodes ?? ['L.O.2'],
+            aiComment: 'AI đã đối chiếu chuẩn đầu ra: đạt yêu cầu.',
+            hasWarning: false,
+            decision: 'PENDING',
+          },
+        ];
+        if (ch) {
+          ch.state = 'LESSON_REVIEW';
+          ch.revision += 1;
+          job.revision = ch.revision;
+        }
+      } else if (job.kind === 'relation' && job.chapterIds) {
+        const chIds = job.chapterIds;
+        const relations: CourseRelationItem[] = [];
+        for (let i = 0; i < chIds.length - 1; i += 1) {
+          const srcLessons = (state.lessonsByChapter[chIds[i]] ?? []).filter((l) => l.decision !== 'REJECT');
+          const tgtLessons = (state.lessonsByChapter[chIds[i + 1]] ?? []).filter((l) => l.decision !== 'REJECT');
+          if (srcLessons.length && tgtLessons.length) {
+            relations.push({
+              id: `rel-${chIds[i]}-${chIds[i + 1]}-1`,
+              sourceId: srcLessons[srcLessons.length - 1].id,
+              sourceName: srcLessons[srcLessons.length - 1].title,
+              sourceChapterId: chIds[i],
+              targetId: tgtLessons[0].id,
+              targetName: tgtLessons[0].title,
+              targetChapterId: chIds[i + 1],
+              relationType: 'PREREQUISITE',
+              sourceRef: `Liên kết ${chIds[i]} → ${chIds[i + 1]}`,
+              aiComment: 'AI đề xuất tiên quyết liên chương dựa trên khái niệm nền tảng.',
+              hasWarning: false,
+              decision: 'PENDING',
+            });
+          }
+        }
+        state.relations = relations;
+        state.relationRevision += 1;
+        job.revision = state.relationRevision;
+      }
+      persistAuthoring();
+    }
+    return wait({
+      jobId,
+      status: job.status,
+      progress: job.progress,
+      result: job.status === 'SUCCEEDED' ? { revision: job.revision } : undefined,
+      canResume: job.canResume,
+      resumeCount: job.resumeCount,
+      maxResumeAttempts: job.maxResumeAttempts,
+    }, 150);
+  },
+  resumeWorkflowJob(jobId: string, _idempotencyKey: string): Promise<{ jobId: string; status: 'QUEUED' }> {
+    const job = authoringJobs.get(jobId);
+    if (!job) return Promise.reject(new Error('Không tìm thấy job.'));
+    if (job.resumeCount >= job.maxResumeAttempts) {
+      return Promise.reject(new Error('409: Đã vượt quá số lần resume tối đa (3 lần).'));
+    }
+    job.resumeCount += 1;
+    job.status = 'QUEUED';
+    job.polls = 0;
+    return wait({ jobId, status: 'QUEUED' }, 80);
+  },
 };

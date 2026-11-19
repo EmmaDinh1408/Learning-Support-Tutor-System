@@ -8,7 +8,10 @@ from app.api.routes import admin, attendance, auth, communication, courses, cour
 from app.api.routes import learning_graph, learning_profiles, quizzes, recommendations, sync
 
 from app.core.config import get_settings
+from app.infrastructure.cache.redis_client import is_redis_enabled, verify_redis_connectivity
 from app.infrastructure.neo4j.driver import close_driver, ensure_schema, run_read, verify_connectivity
+from app.infrastructure.postgres.db import ensure_postgres_schema, is_postgres_enabled, verify_postgres_connectivity
+from app.infrastructure.storage.minio_client import ensure_bucket, is_s3_enabled
 
 
 @asynccontextmanager
@@ -19,6 +22,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     try:
         verify_connectivity()
         ensure_schema()
+        ensure_postgres_schema()
+        ensure_bucket()
         yield
     finally:
         close_driver()
@@ -54,6 +59,12 @@ for route_group in (
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
+def health() -> dict[str, object]:
     run_read("RETURN 1 AS connected")
-    return {"status": "ok", "database": "neo4j"}
+    return {
+        "status": "ok",
+        "neo4j": "ok",
+        "postgres": "ok" if (is_postgres_enabled() and verify_postgres_connectivity()) else "disabled",
+        "redis": "ok" if (is_redis_enabled() and verify_redis_connectivity()) else "disabled",
+        "objectStorage": "minio/s3" if is_s3_enabled() else "local-disk",
+    }

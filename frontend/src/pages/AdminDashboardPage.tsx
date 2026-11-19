@@ -126,7 +126,7 @@ export default function AdminDashboardPage() {
 
   const saveCourse = async (event: FormEvent) => {
     event.preventDefault();
-    if (!courseCode.trim() || !courseTitle.trim()) return;
+    if (busy || !courseCode.trim() || !courseTitle.trim()) return;
     setBusy(true);
     setError('');
     setMessage('');
@@ -157,7 +157,7 @@ export default function AdminDashboardPage() {
           published: coursePublished,
           lecturerId: courseLecturerId || null,
         });
-        setCourses((current) => [created, ...current]);
+        setCourses((current) => [created, ...current.filter((item) => item.id !== created.id)]);
         setMessage(`Đã tạo khóa học ${created.code}.`);
       }
       resetCourseForm();

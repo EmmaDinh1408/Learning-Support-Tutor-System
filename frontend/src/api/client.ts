@@ -1,13 +1,13 @@
 import type {
   AdminAnnouncementRecord, AdminCourseOption, AdminCourseRecord, AdminEnrollment, AdminStats, AdminStudentOption, AdminUser, Announcement, Assignment, AssignmentSubmissionRecord,
-  AttendanceSession, ClusterView, ConversationMessage, ConversationSummary,
-  CourseFile, CourseOverallGrade, CourseRecommendation, CreateAnnouncementInput, CreateAssignmentInput, CreateAttendanceSessionInput,
+  AttendanceSession, ChapterLessonItem, ClusterView, ConversationMessage, ConversationSummary,
+  CourseFile, CourseOutlineData, CourseOverallGrade, CourseRecommendation, CourseRelationItem, CreateAnnouncementInput, CreateAssignmentInput, CreateAttendanceSessionInput,
   CreateConversationInput, CreateQuizInput, CreateTeacherCourseInput, DashboardData, HeatSpot, HomeSlide,
   KnowledgeEdgeType, KnowledgeGraphData, KnowledgeNodeType,
   LearningOutcome, LoginHeroStat, MessageContact, MessagePreview, NodeDetail, NodeEditorData,
-  NotificationRecord, PdfFile, ProfileDetails, ProfileRecord, QueueSummary, Quiz, QuizAttempt, Role, StudentAttendanceData,
+  NotificationRecord, OutlineDraftResponse, PdfFile, ProfileDetails, ProfileRecord, PublishCourseResponse, QueueSummary, Quiz, QuizAttempt, ReviewDecision, Role, StudentAttendanceData,
   StudentCourse, StudentGradeItem, StudentGraph, StudentLearningProfile, SubmitAssignmentInput, SubmitQuizInput, TeacherCourse,
-  TeacherCourseTopic, TeacherGradeRow, TeacherGraphData, UpdateAnnouncementInput, UpdateAssignmentInput, UpdateAttendanceSessionInput, UpdateGradebookRowInput, UpdateTeacherCourseInput, User,
+  TeacherCourseTopic, TeacherGradeRow, TeacherGraphData, UpdateAnnouncementInput, UpdateAssignmentInput, UpdateAttendanceSessionInput, UpdateGradebookRowInput, UpdateTeacherCourseInput, User, WorkflowJobResponse,
 } from '../types';
 
 import { mockApi } from '../../../mockdata/service';
@@ -443,6 +443,31 @@ export const api = {
       () => mockApi.getKnowledgeGraph(courseId),
       `/courses/${encodeURIComponent(courseId)}/knowledge-graph`,
     ),
+  generateKnowledgeGraph: async (courseId: string): Promise<KnowledgeGraphData> => {
+    if (USE_MOCK_API) {
+      return mockApi.generateKnowledgeGraph(courseId);
+    }
+    const res = await request<KnowledgeGraphData & { jobId?: string; status?: string }>(
+      `/teacher/courses/${encodeURIComponent(courseId)}/knowledge-graph/generate`,
+      json('POST', {}),
+    );
+    if (res.jobId && res.status && res.status !== 'completed') {
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        const job = await request<{ status: string; errorMessage?: string }>(
+          `/teacher/courses/${encodeURIComponent(courseId)}/knowledge-graph/jobs/${encodeURIComponent(res.jobId)}`,
+        );
+        if (job.status === 'completed') {
+          return api.getKnowledgeGraph(courseId);
+        }
+        if (job.status === 'failed') {
+          throw new Error(job.errorMessage || 'Trích xuất đồ thị từ PDF thất bại.');
+        }
+      }
+      throw new Error('Tác vụ trích xuất đồ thị mất quá nhiều thời gian.');
+    }
+    return res;
+  },
   getCourseGraph: (courseId: string): Promise<TeacherGraphData> =>
     invoke(() => mockApi.getCourseGraph(courseId), `/courses/${encodeURIComponent(courseId)}/graph`),
   getCourseClusterView: (courseId: string, clusterId: string): Promise<ClusterView> =>
@@ -554,5 +579,226 @@ export const api = {
     invoke(() => mockApi.getLoChains(courseId), `/courses/${encodeURIComponent(courseId)}/learning-outcomes/chains`),
   getNodeEditor: (nodeId: string): Promise<NodeEditorData> =>
     invoke(() => mockApi.getNodeEditor(nodeId), `/teacher/nodes/${encodeURIComponent(nodeId)}`),
+
+  /* ==================== D1–D5 Course Graph Authoring Workflow ==================== */
+  uploadCourseSyllabus: (courseId: string, file: File): Promise<{ syllabusId: string }> => {
+    const form = new FormData();
+    form.append('file', file);
+    return invoke(
+      () => mockApi.uploadCourseSyllabus(courseId, file),
+      `/courses/${encodeURIComponent(courseId)}/syllabus`,
+      { method: 'POST', body: form },
+    );
+  },
+  createOutlineJob: (
+    courseId: string,
+    syllabusId: string,
+    idempotencyKey: string,
+  ): Promise<{ jobId: string; status: string }> =>
+    invoke(
+      () => mockApi.createOutlineJob(courseId, syllabusId, idempotencyKey),
+      `/courses/${encodeURIComponent(courseId)}/outline-jobs`,
+      { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ syllabusId }) },
+    ),
+  getOutlineDraft: (courseId: string): Promise<OutlineDraftResponse> =>
+    invoke(() => mockApi.getOutlineDraft(courseId), `/courses/${encodeURIComponent(courseId)}/outline/draft`),
+  saveOutlineDraft: (
+    courseId: string,
+    outline: CourseOutlineData,
+    expectedRevision: number,
+  ): Promise<OutlineDraftResponse> =>
+    invoke(
+      () => mockApi.saveOutlineDraft(courseId, outline, expectedRevision),
+      `/courses/${encodeURIComponent(courseId)}/outline/draft`,
+      json('PUT', { outline, expectedRevision }),
+    ),
+  approveOutline: (
+    courseId: string,
+    expectedRevision: number,
+  ): Promise<{ state: 'OUTLINE_APPROVED'; revision: number }> =>
+    invoke(
+      () => mockApi.approveOutline(courseId, expectedRevision),
+      `/courses/${encodeURIComponent(courseId)}/outline/approval`,
+      json('POST', { expectedRevision }),
+    ),
+
+  reopenChapter: (
+    courseId: string,
+    chapterId: string,
+    expectedRevision: number,
+  ): Promise<{ draftId: string; state: 'DRAFT'; revision: number }> =>
+    invoke(
+      () => mockApi.reopenChapter(courseId, chapterId, expectedRevision),
+      `/courses/${encodeURIComponent(courseId)}/chapters/${encodeURIComponent(chapterId)}/reopen`,
+      json('POST', { expectedRevision }),
+    ),
+  uploadChapterDocument: (
+    courseId: string,
+    chapterId: string,
+    file: File,
+  ): Promise<{ documentId: string; revision: number }> => {
+    const form = new FormData();
+    form.append('file', file);
+    return invoke(
+      () => mockApi.uploadChapterDocument(courseId, chapterId, file),
+      `/courses/${encodeURIComponent(courseId)}/chapters/${encodeURIComponent(chapterId)}/documents`,
+      { method: 'POST', body: form },
+    );
+  },
+  createLessonJob: (
+    courseId: string,
+    chapterId: string,
+    expectedRevision: number,
+    idempotencyKey: string,
+  ): Promise<{ jobId: string; status: string }> =>
+    invoke(
+      () => mockApi.createLessonJob(courseId, chapterId, expectedRevision, idempotencyKey),
+      `/courses/${encodeURIComponent(courseId)}/chapters/${encodeURIComponent(chapterId)}/lesson-jobs`,
+      { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ expectedRevision }) },
+    ),
+  getChapterLessons: (
+    courseId: string,
+    chapterId: string,
+    cursor?: string | null,
+    limit = 20,
+  ): Promise<{ items: ChapterLessonItem[]; nextCursor: string | null; revision: number }> => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set('cursor', cursor);
+    return invoke(
+      () => mockApi.getChapterLessons(courseId, chapterId, cursor, limit),
+      `/courses/${encodeURIComponent(courseId)}/chapters/${encodeURIComponent(chapterId)}/lessons?${params.toString()}`,
+    );
+  },
+  reviewChapterLesson: (
+    courseId: string,
+    chapterId: string,
+    lessonId: string,
+    input: { decision: ReviewDecision; changes?: Partial<ChapterLessonItem>; reviewNote?: string; expectedRevision: number },
+  ): Promise<{ lesson: ChapterLessonItem; revision: number }> =>
+    invoke(
+      () => mockApi.reviewChapterLesson(courseId, chapterId, lessonId, input),
+      `/courses/${encodeURIComponent(courseId)}/chapters/${encodeURIComponent(chapterId)}/lessons/${encodeURIComponent(lessonId)}`,
+      json('PATCH', input),
+    ),
+  batchReviewChapterLessons: (
+    courseId: string,
+    chapterId: string,
+    input: {
+      items: Array<{ lessonId: string; decision: ReviewDecision; changes?: Partial<ChapterLessonItem>; reviewNote?: string }>;
+      expectedRevision: number;
+    },
+  ): Promise<{ updatedCount: number; revision: number }> =>
+    invoke(
+      () => mockApi.batchReviewChapterLessons(courseId, chapterId, input),
+      `/courses/${encodeURIComponent(courseId)}/chapters/${encodeURIComponent(chapterId)}/lessons/batch-review`,
+      json('POST', input),
+    ),
+  approveChapterLessons: (
+    courseId: string,
+    chapterId: string,
+    expectedRevision: number,
+  ): Promise<{ state: 'LESSON_APPROVED'; revision: number }> =>
+    invoke(
+      () => mockApi.approveChapterLessons(courseId, chapterId, expectedRevision),
+      `/courses/${encodeURIComponent(courseId)}/chapters/${encodeURIComponent(chapterId)}/lesson-approval`,
+      json('POST', { expectedRevision }),
+    ),
+  discardChapterLessons: (
+    courseId: string,
+    chapterId: string,
+    expectedRevision: number,
+  ): Promise<{ state: 'DRAFT'; revision: number }> =>
+    invoke(
+      () => mockApi.discardChapterLessons(courseId, chapterId, expectedRevision),
+      `/courses/${encodeURIComponent(courseId)}/chapters/${encodeURIComponent(chapterId)}/lessons/discard`,
+      json('POST', { expectedRevision }),
+    ),
+
+  createRelationJob: (
+    courseId: string,
+    chapterIds: string[],
+    expectedRevision: number,
+    idempotencyKey: string,
+  ): Promise<{ jobId: string; status: string }> =>
+    invoke(
+      () => mockApi.createRelationJob(courseId, chapterIds, expectedRevision, idempotencyKey),
+      `/courses/${encodeURIComponent(courseId)}/relation-jobs`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ chapterIds, expectedRevision }),
+      },
+    ),
+  getCourseRelations: (
+    courseId: string,
+    cursor?: string | null,
+    limit = 20,
+  ): Promise<{ items: CourseRelationItem[]; nextCursor: string | null; revision: number }> => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set('cursor', cursor);
+    return invoke(
+      () => mockApi.getCourseRelations(courseId, cursor, limit),
+      `/courses/${encodeURIComponent(courseId)}/relations?${params.toString()}`,
+    );
+  },
+  reviewCourseRelation: (
+    courseId: string,
+    relationId: string,
+    input: { decision: ReviewDecision; changes?: Partial<CourseRelationItem>; reviewNote?: string; expectedRevision: number },
+  ): Promise<{ relation: CourseRelationItem; revision: number }> =>
+    invoke(
+      () => mockApi.reviewCourseRelation(courseId, relationId, input),
+      `/courses/${encodeURIComponent(courseId)}/relations/${encodeURIComponent(relationId)}`,
+      json('PATCH', input),
+    ),
+  batchReviewCourseRelations: (
+    courseId: string,
+    input: {
+      items: Array<{ relationId: string; decision: ReviewDecision; changes?: Partial<CourseRelationItem>; reviewNote?: string }>;
+      expectedRevision: number;
+    },
+  ): Promise<{ updatedCount: number; revision: number }> =>
+    invoke(
+      () => mockApi.batchReviewCourseRelations(courseId, input),
+      `/courses/${encodeURIComponent(courseId)}/relations/batch-review`,
+      json('POST', input),
+    ),
+  discardCourseRelations: (courseId: string, expectedRevision: number): Promise<{ revision: number }> =>
+    invoke(
+      () => mockApi.discardCourseRelations(courseId, expectedRevision),
+      `/courses/${encodeURIComponent(courseId)}/relations/discard`,
+      json('POST', { expectedRevision }),
+    ),
+
+  publishCourseGraph: (
+    courseId: string,
+    expectedRevision: number,
+    expectedMasterVersion: number,
+    idempotencyKey: string,
+  ): Promise<PublishCourseResponse> =>
+    invoke(
+      () => mockApi.publishCourseGraph(courseId, expectedRevision, expectedMasterVersion, idempotencyKey),
+      `/courses/${encodeURIComponent(courseId)}/publish`,
+      {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
+        body: JSON.stringify({ expectedRevision, expectedMasterVersion }),
+      },
+    ),
+  recoverCoursePublish: (courseId: string, publicationId: string): Promise<PublishCourseResponse> =>
+    invoke(
+      () => mockApi.recoverCoursePublish(courseId, publicationId),
+      `/courses/${encodeURIComponent(courseId)}/publish/recover`,
+      json('POST', { publicationId }),
+    ),
+
+  getWorkflowJob: (jobId: string): Promise<WorkflowJobResponse> =>
+    invoke(() => mockApi.getWorkflowJob(jobId), `/jobs/${encodeURIComponent(jobId)}`),
+  resumeWorkflowJob: (jobId: string, idempotencyKey: string): Promise<{ jobId: string; status: 'QUEUED' }> =>
+    invoke(
+      () => mockApi.resumeWorkflowJob(jobId, idempotencyKey),
+      `/jobs/${encodeURIComponent(jobId)}/resume`,
+      { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey } },
+    ),
 
 };
